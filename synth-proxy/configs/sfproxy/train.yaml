@@ -4,8 +4,11 @@ defaults:
   - _self_
 
 # Self-contained train config.
-# Instrument-specific dataset naming is usually passed from shell scripts.
-task_name: sfproxy_train
+sampler_preset: mixed_v2
+segment_seconds: 2.0
+boundary_mode: default
+task_name: ${dataset.train.instrument_name}_${sampler_preset}_${seg_tag:${segment_seconds}}_${boundary_mode}
+reset_output_dir: false
 
 tags:
   - ${task_name}
@@ -28,11 +31,9 @@ paths:
   project_name: synth-proxy_v1
 
   project_dir: ${paths.workspace_dir}/${paths.project_name}
-  teacher_dir: ${paths.project_dir}/teacher_data
+  data_dir: ${paths.project_dir}/data
   proxy_dir: ${paths.project_dir}/proxy
 
-  data_dir: ${paths.teacher_dir}
-  log_dir: ${paths.proxy_dir}/logs
   ckpt_dir: ${paths.proxy_dir}/checkpoints
 
   output_dir: ${hydra:runtime.output_dir}
@@ -44,6 +45,7 @@ dataset:
   train:
     path: null
     instrument_name: salamander_piano
+    split: train
     dataset_size: 1.0
     loader:
       batch_size: 64
@@ -52,6 +54,7 @@ dataset:
   val:
     path: null
     instrument_name: salamander_piano
+    split: val
     loader:
       batch_size: 64
       num_workers: 2
@@ -90,23 +93,23 @@ solver:
 callbacks:
   ckpt_last:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
-    dirpath: ${paths.output_dir}/checkpoints
-    filename: last_e{epoch}
+    dirpath: ${paths.output_dir}
+    filename: ${task_name}_last_e{epoch}
     auto_insert_metric_name: False
     every_n_epochs: 1
     save_on_train_epoch_end: True
     save_last: link
   ckpt_every5e:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
-    dirpath: ${paths.output_dir}/checkpoints
-    filename: e{epoch}
+    dirpath: ${paths.output_dir}
+    filename: ${task_name}_e{epoch}
     auto_insert_metric_name: False
     every_n_epochs: 5
     save_on_train_epoch_end: True
     save_top_k: -1
   ckpt_loss:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
-    dirpath: ${paths.output_dir}/checkpoints
+    dirpath: ${paths.output_dir}
     filename: ${task_name}_e{epoch}_loss{val/loss:.4f}
     auto_insert_metric_name: False
     monitor: "val/loss"
@@ -134,9 +137,9 @@ logger:
     project: "sfproxy"
     log_model: False
     prefix: ""
-    group: "sfproxy"
+    group: sfproxy_${dataset.name}
     tags: ${tags}
-    job_type: "train"
+    job_type: ${sampler_preset}_${boundary_mode}_${seg_tag:${segment_seconds}}
     resume: allow
 
 trainer:
@@ -157,10 +160,10 @@ hydra:
     - override job_logging: colorlog
 
   run:
-    dir: ${paths.log_dir}/sfproxy/${task_name}_${now:%Y-%m-%d}_${now:%H-%M-%S}
+    dir: ${paths.ckpt_dir}/${dataset.train.instrument_name}/${task_name}
 
   sweep:
-    dir: ${paths.log_dir}/sfproxy/multirun_${now:%Y-%m-%d}_${now:%H-%M-%S}
+    dir: ${paths.proxy_dir}/multirun/sfproxy_${now:%Y-%m-%d}_${now:%H-%M-%S}
     subdir: ${hydra.job.num}_${task_name}
 
   job_logging:

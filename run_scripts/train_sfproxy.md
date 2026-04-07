@@ -3,7 +3,7 @@
 This note is a practical guide for choosing the sampler-related settings at the
 top of `run_scripts/train_sfproxy.sh`.
 
-It focuses on the teacher-data sampler, because for SFProxy this part is not a
+It focuses on the data sampler, because for SFProxy this part is not a
 small detail. The sampler decides what note events the model sees during
 training: pitch coverage, chord density, onset spacing, duration distribution,
 and especially velocity structure. In practice, many "model" differences are
@@ -13,7 +13,7 @@ actually data-generation differences.
 
 When `train_sfproxy.sh` runs, it does three things:
 
-1. Export synthetic teacher data from a SoundFont.
+1. Export synthetic data from a SoundFont.
 2. Train one SFProxy model on that exported data.
 3. Save checkpoints and log the run to W&B.
 
@@ -76,7 +76,7 @@ What `shared` means:
 Why it exists:
 
 - baseline compatibility
-- useful when you want to compare against the older Route IV teacher-data idea
+- useful when you want to compare against the older Route IV data-generation idea
 
 Strengths:
 

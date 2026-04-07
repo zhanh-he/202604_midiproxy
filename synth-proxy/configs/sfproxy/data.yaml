@@ -1,8 +1,17 @@
 defaults:
   - _self_
 
-# Shared teacher-data export config.
+# Shared data export config.
 # Use `--config-name data_piano` or `data_guitar` for concrete runs.
+
+boundary_mode: default
+split: train
+task_name: ${instrument.name}_${sampler_preset}_${seg_tag:${instrument.seg_len_s}}_${boundary_mode}
+reset_output_dir: false
+train_dataset_size: 20000
+val_dataset_size: 2000
+train_seed_offset: 0
+val_seed_offset: 1000
 
 paths:
   # Default to the launch directory so notebooks/scripts run cleanly from repo root
@@ -16,7 +25,7 @@ paths:
   project_name: synth-proxy_v1
 
   project_dir: ${paths.workspace_dir}/${paths.project_name}
-  teacher_dir: ${paths.project_dir}/teacher_data
+  data_dir: ${paths.project_dir}/data
   proxy_dir: ${paths.project_dir}/proxy
 
 instrument:
@@ -36,7 +45,6 @@ instrument:
   nmax: 64
 
 feature:
-  frame_rate: 100
   n_fft: 2048
   hop: 221
   win_length: null
@@ -57,8 +65,8 @@ sampler_options: {}
 # Global dataset indexing
 # dataset_size defines the full virtual dataset size for deterministic sampling.
 # start_index/end_index define which range to export to this folder.
-dataset_size: 10000
-seed_offset: 0
+dataset_size: ${split_value:${split},${train_dataset_size},${val_dataset_size}}
+seed_offset: ${split_value:${split},${train_seed_offset},${val_seed_offset}}
 start_index: 0
 end_index: ${dataset_size}
 
@@ -78,6 +86,6 @@ export_audio: 0
 
 hydra:
   run:
-    dir: ${paths.teacher_dir}/${instrument.name}/export_${now:%Y-%m-%d_%H-%M-%S}
+    dir: ${paths.data_dir}/${instrument.name}/${task_name}/${split}
   job:
     chdir: true

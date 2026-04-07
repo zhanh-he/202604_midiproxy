@@ -4,7 +4,7 @@ defaults:
 
 instrument:
   name: salamander_piano
-  path: /media/mengh/SharedData/zhanh/202601_midisemi_data/soundfront/SalamanderGrandPiano-SF2-V3+20200602/SalamanderGrandPiano-V3+20200602.sf2
+  path: /media/mengh/SharedData/zhanh/202601_midisemi_data/soundfont/SalamanderGrandPiano-SFZ/SalamanderGrandPianoV3.sfz
   backend: auto
   bank: 0
   program: 0

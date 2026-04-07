@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from typing import Any, Dict, List
 import hydra
 import lightning as L
 import torch
+import utils.resolvers  # noqa: F401
 from lightning import Callback, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -45,7 +47,17 @@ def _configure_default_logging() -> None:
     logging.getLogger("utils.instantiators").setLevel(logging.WARNING)
 
 
-def _resolve_dataset_dir(dataset_cfg: DictConfig, teacher_dir: str) -> Path:
+def _reset_output_dir(dir_path: Path) -> None:
+    if not dir_path.exists():
+        return
+    for child in dir_path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def _resolve_dataset_dir(dataset_cfg: DictConfig, data_dir: str, task_name: str) -> Path:
     explicit_path = dataset_cfg.get("path")
     if explicit_path:
         explicit_path = Path(str(explicit_path))
@@ -64,7 +76,13 @@ def _resolve_dataset_dir(dataset_cfg: DictConfig, teacher_dir: str) -> Path:
     if not instrument_name:
         raise ValueError("dataset path could not be resolved: set dataset.*.path or dataset.*.instrument_name")
 
-    instrument_root = Path(str(teacher_dir)) / str(instrument_name)
+    instrument_root = Path(str(data_dir)) / str(instrument_name)
+    split = dataset_cfg.get("split")
+    if split:
+        tagged_dir = instrument_root / str(task_name) / str(split)
+        if tagged_dir.is_dir():
+            return tagged_dir
+
     export_dirs = sorted(
         [p for p in instrument_root.glob("export_*") if p.is_dir()],
         key=lambda p: p.name,
@@ -78,7 +96,11 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     if cfg.get("seed") is not None:
         L.seed_everything(int(cfg.seed))
 
-    train_path = _resolve_dataset_dir(cfg.dataset.train, cfg.paths.teacher_dir)
+    output_dir = Path(str(cfg.paths.output_dir))
+    if bool(cfg.get("reset_output_dir", False)):
+        _reset_output_dir(output_dir)
+
+    train_path = _resolve_dataset_dir(cfg.dataset.train, cfg.paths.data_dir, cfg.task_name)
     log.info(f"Instantiating training dataset: {train_path}")
     train_dataset = NoteProxyDatasetPkl(train_path)
     if float(cfg.dataset.train.dataset_size) < 1.0:
@@ -96,7 +118,7 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
         drop_last=False,
     )
 
-    val_path = _resolve_dataset_dir(cfg.dataset.val, cfg.paths.teacher_dir)
+    val_path = _resolve_dataset_dir(cfg.dataset.val, cfg.paths.data_dir, cfg.task_name)
     log.info(f"Instantiating validation dataset: {val_path}")
     val_dataset = NoteProxyDatasetPkl(val_path)
     val_loader = DataLoader(

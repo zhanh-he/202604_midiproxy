@@ -87,6 +87,13 @@ def _proxy_objective_name(cfg) -> str:
     return _clean_name_part(get_audio_loss_name(cfg)) or "audio"
 
 
+def _fmt_tag_value(value) -> str:
+    text = _clean_name_part(value)
+    if not text:
+        return ""
+    return text.replace(".", "p")
+
+
 def _backend_suffix(cfg) -> str:
     enabled = bool(getattr(cfg.proxy, "enabled", False))
     weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
@@ -94,7 +101,21 @@ def _backend_suffix(cfg) -> str:
         return ""
     backend_tag = backend_run_tag(getattr(cfg.proxy, "type", "ddsp_piano"))
     backend_objective = _proxy_objective_name(cfg)
-    return f"+backend_{backend_tag}+{backend_objective}"
+    parts = [f"backend_{backend_tag}", backend_objective]
+    if is_diffproxy_backend(getattr(cfg.proxy, "type", "")):
+        instrument = _clean_name_part(getattr(cfg.proxy.sfproxy, "instrument_name", ""))
+        crop_seconds = _fmt_tag_value(getattr(cfg.proxy, "backend_segment_seconds", getattr(cfg.proxy, "crop_seconds", 0.0)))
+        crop_mode = _clean_name_part(getattr(cfg.proxy, "crop_mode", ""))
+        prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
+        if instrument:
+            parts.append(instrument)
+        if crop_seconds and crop_seconds != "0":
+            parts.append(f"seg{crop_seconds}s")
+        if crop_mode:
+            parts.append(f"crop_{crop_mode}")
+        if prior_weight > 0:
+            parts.append(f"prior{prior_weight:g}".replace(".", "p"))
+    return "+" + "+".join(parts)
 
 
 

@@ -141,15 +141,25 @@ class DistEnv:
 def unwrap_model(model):
     return model.module if isinstance(model, (nn.DataParallel, DDP)) else model
 
+
+def default_wandb_run_name(args) -> str:
+    return (
+        f"ddsp_piano_phase{int(args.phase)}"
+        f"_sr{int(args.sample_rate)}"
+        f"_fps{int(args.frame_rate)}"
+        f"_seg{float(args.duration):g}s"
+    )
+
+
 def process_args():
     # Get arguments from command line
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', '-b', type=int, default=16,
+    parser.add_argument('--batch_size', '-b', type=int, default=6,
                         help="Number of elements per batch.\
                         (default: %(default)s)")
 
-    parser.add_argument('--epochs', '-e', type=int, default=128,
+    parser.add_argument('--epochs', '-e', type=int, default=7,
                         help="Number of epochs. (default: %(default)s)")
 
     parser.add_argument('--lr', type=float, default=0.001,
@@ -166,7 +176,7 @@ def process_args():
 
     parser.add_argument('--logs_interval', type=int, default=20)
 
-    parser.add_argument('--save_interval', type=int, default=800,
+    parser.add_argument('--save_interval', type=int, default=2000,
                         help="Global step interval for checkpointing. (default: %(default)s)")
 
     parser.add_argument('--sample_rate', type=int, default=22050,
@@ -184,7 +194,7 @@ def process_args():
     parser.add_argument('--loss_n_ffts', type=str, default='2048,1024,512,256,128,64',
                         help='Comma-separated FFT sizes for HybridLoss.')
 
-    parser.add_argument('--num_workers', type=int, default=4,
+    parser.add_argument('--num_workers', type=int, default=8,
                         help="Number of worker processes for DataLoader. (default: %(default)s)")
 
     parser.add_argument('--continue_from', type=str, default=None,
@@ -192,7 +202,7 @@ def process_args():
     parser.add_argument('--init_from', type=str, default=None,
                         help="Initialize model weights from a previous phase checkpoint (.pt) without optimizer state.")
 
-    parser.add_argument('--wandb_project', type=str, default='ddsp-piano',
+    parser.add_argument('--wandb_project', type=str, default='ddsp-piano-unified',
                         help="Weights & Biases project name.")
     parser.add_argument('--wandb_run_name', type=str, default=None,
                         help="Optional run name for Weights & Biases.")
@@ -371,7 +381,7 @@ def main(args):
         resume_strategy = 'must' if existing_wandb_id else 'allow'
         wandb_run = wandb.init(
             project=args.wandb_project,
-            name=args.wandb_run_name,
+            name=(args.wandb_run_name or default_wandb_run_name(args)),
             config=vars(args),
             id=existing_wandb_id,
             resume=resume_strategy,

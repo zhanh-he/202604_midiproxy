@@ -14,7 +14,7 @@ paths:
   project_name: synth-proxy_v1
 
   project_dir: ${paths.workspace_dir}/${paths.project_name}
-  teacher_dir: ${paths.project_dir}/teacher_data
+  data_dir: ${paths.project_dir}/data
   proxy_dir: ${paths.project_dir}/proxy
 
 model:
@@ -84,7 +84,6 @@ velocity_recovery:
     boundary_width_01: 0.03
 
   feature:
-    frame_rate: 100
     n_fft: 2048
     hop: 221
     win_length: null

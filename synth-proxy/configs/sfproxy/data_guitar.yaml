@@ -4,7 +4,7 @@ defaults:
 
 instrument:
   name: guitar
-  path: ${paths.repo_root}/data/soundfonts/guitar.sf2
+  path: /media/mengh/SharedData/zhanh/202601_midisemi_data/soundfont/SpanishClassicalGuitar-SFZ/SpanishClassicalGuitar-20190618.sfz
   backend: auto
   bank: 0
   program: 0

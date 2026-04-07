@@ -1,5 +1,5 @@
 # pylint: disable=W1203
-"""Export rendered teacher data to .pkl tensors.
+"""Export rendered synthetic data to .pkl tensors.
 
 This script generates synthetic note-event segments, renders them with a black-box
 instrument renderer, and extracts note-wise dynamics features.
@@ -17,6 +17,7 @@ Run example:
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -59,6 +60,16 @@ signal.signal(signal.SIGTERM, graceful_shutdown)
 signal.signal(signal.SIGINT, graceful_shutdown)
 
 
+def _reset_output_dir(dir_path: Path) -> None:
+    if not dir_path.exists():
+        return
+    for child in dir_path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
 def _apply_velocity_stats_flag(sampler_cfg, use_velocity_stats: bool):
     if not isinstance(sampler_cfg, dict):
         return sampler_cfg
@@ -85,6 +96,10 @@ def _resolve_sampler_dict(cfg: DictConfig) -> dict:
 def export_dataset_pkl(cfg: DictConfig) -> None:
     global is_interrupted  # pylint: disable=global-statement
 
+    output_dir = Path.cwd()
+    if bool(cfg.get("reset_output_dir", False)):
+        _reset_output_dir(output_dir)
+
     start_index = int(cfg.start_index)
     end_index = int(cfg.end_index)
     offset_index = 0
@@ -106,7 +121,7 @@ def export_dataset_pkl(cfg: DictConfig) -> None:
         log.warning("sampler.seg_len_s differs from instrument.seg_len_s. Using instrument.seg_len_s")
 
     # Resume state
-    resume_path = Path.cwd() / RESUME_STATE_FILE
+    resume_path = output_dir / RESUME_STATE_FILE
 
     if resume_path.exists():
         saved = torch.load(str(resume_path), map_location="cpu")
@@ -124,7 +139,7 @@ def export_dataset_pkl(cfg: DictConfig) -> None:
     else:
         out_audio_dir = None
         if int(cfg.export_audio) != 0:
-            out_audio_dir = Path.cwd() / "audio"
+            out_audio_dir = output_dir / "audio"
             out_audio_dir.mkdir(parents=True, exist_ok=True)
 
         exported_size = end_index - start_index
@@ -157,7 +172,7 @@ def export_dataset_pkl(cfg: DictConfig) -> None:
         for k, v in configs_dict.items():
             log.info(f"{k}: {v}")
 
-        with open(Path.cwd() / "configs.pkl", "wb") as f:
+        with open(output_dir / "configs.pkl", "wb") as f:
             torch.save(configs_dict, f)
 
         # Allocate output tensors
@@ -199,7 +214,7 @@ def export_dataset_pkl(cfg: DictConfig) -> None:
     total_batches = max(1, (end_index - start_index + int(cfg.batch_size) - 1) // int(cfg.batch_size))
     pbar = tqdm(loader, total=total_batches, dynamic_ncols=True)
 
-    out_audio_dir = Path.cwd() / "audio" if int(cfg.export_audio) != 0 else None
+    out_audio_dir = output_dir / "audio" if int(cfg.export_audio) != 0 else None
 
     for i, (pitch_b, cont_b, mask_b, audio_b, idx_b) in enumerate(pbar):
         slice_start = i * int(cfg.batch_size) + offset_index
