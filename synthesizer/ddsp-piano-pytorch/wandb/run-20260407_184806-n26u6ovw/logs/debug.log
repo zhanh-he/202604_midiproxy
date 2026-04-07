@@ -1,0 +1,28 @@
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_setup.py:_flush():68] Current SDK version is 0.19.3
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_setup.py:_flush():68] Configure stats pid to 1315682
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_setup.py:_flush():68] Loading settings from /home/mengh/.config/wandb/settings
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_setup.py:_flush():68] Loading settings from /media/mengh/SharedData/zhanh/202604_midiproxy/synthesizer/ddsp-piano-pytorch/wandb/settings
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_setup.py:_flush():68] Loading settings from environment variables
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_init.py:_log_setup():598] Logging user logs to /media/mengh/SharedData/zhanh/202604_midiproxy/synthesizer/ddsp-piano-pytorch/wandb/run-20260407_184806-n26u6ovw/logs/debug.log
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_init.py:_log_setup():599] Logging internal logs to /media/mengh/SharedData/zhanh/202604_midiproxy/synthesizer/ddsp-piano-pytorch/wandb/run-20260407_184806-n26u6ovw/logs/debug-internal.log
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_init.py:init():714] calling init triggers
+2026-04-07 18:48:06,638 INFO    MainThread:1315682 [wandb_init.py:init():719] wandb.init called with sweep_config: {}
+config: {'batch_size': 6, 'epochs': 7, 'lr': 0.001, 'phase': 1, 'cuda': 1, 'logs_interval': 20, 'save_interval': 2000, 'sample_rate': 22050, 'frame_rate': 100, 'duration': 2.0, 'reverb_duration': 1.5, 'loss_n_ffts': '2048,1024,512,256,128,64', 'num_workers': 8, 'continue_from': None, 'init_from': None, 'wandb_project': 'ddsp-piano-unified', 'wandb_run_name': 'phase1_2s', 'debug_mode': False, 'use_ddp': False, 'maestro_cache_path': '/media/mengh/SharedData/zhanh/202601_midisemi_data/ddsp-piano-pytorch/workspaces_unified_2s/data_cache', 'exp_dir': '/media/mengh/SharedData/zhanh/202601_midisemi_data/ddsp-piano-pytorch/workspaces_unified_2s/models/phase_1'}
+2026-04-07 18:48:06,639 INFO    MainThread:1315682 [wandb_init.py:init():745] starting backend
+2026-04-07 18:48:06,890 INFO    MainThread:1315682 [wandb_init.py:init():749] sending inform_init request
+2026-04-07 18:48:06,929 INFO    MainThread:1315682 [backend.py:_multiprocessing_setup():104] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2026-04-07 18:48:06,930 INFO    MainThread:1315682 [wandb_init.py:init():764] backend started and connected
+2026-04-07 18:48:06,931 INFO    MainThread:1315682 [wandb_init.py:init():857] updated telemetry
+2026-04-07 18:48:06,988 INFO    MainThread:1315682 [wandb_init.py:init():889] communicating run to backend with 90.0 second timeout
+2026-04-07 18:48:07,018 WARNING MsgRouterThr:1315682 [router.py:message_loop():75] message_loop has been closed
+2026-04-07 18:48:16,990 ERROR   MainThread:1315682 [wandb_init.py:init():1378] error in wandb.init()
+Traceback (most recent call last):
+  File "/home/mengh/miniconda3/envs/dynest_ddsp/lib/python3.11/site-packages/wandb/sdk/wandb_init.py", line 1368, in init
+    return wi.init(run_settings)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mengh/miniconda3/envs/dynest_ddsp/lib/python3.11/site-packages/wandb/sdk/wandb_init.py", line 894, in init
+    result = run_init_handle.wait(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mengh/miniconda3/envs/dynest_ddsp/lib/python3.11/site-packages/wandb/sdk/lib/mailbox.py", line 277, in wait
+    raise MailboxError("transport failed")
+wandb.sdk.lib.mailbox.MailboxError: transport failed

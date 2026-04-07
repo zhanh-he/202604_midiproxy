@@ -1,0 +1,353 @@
+wandb:
+  project: "202602_smc"
+  name: ""
+  comment: "mel229"
+
+
+exp:
+  # workspace: "./workspaces" #kaya
+  # workspace: "/media/datadisk/home/22828187/zhanh/202510_hpt_data/workspaces" #uwa
+  # workspace: "/Users/hanyu/Documents/ipynb/202510_hpt_data/workspaces" #mac
+  # workspace: "/media/mengh/SharedData/zhanh/202510_hpt_data/workspaces" #mengh
+  # Keep datasets / logs / checkpoints outside the git repo.
+  workspace: "/media/mengh/SharedData/zhanh/202601_midisemi_data/score_hpt/workspaces"
+  total_iteration: 120_000  # 200_000 # 300_000 # 360_000
+  save_iteration: 10_000    # 6_000 # 6_000
+  eval_iteration: 10_000    # 6_000 # 6_000
+
+  optim: "adam"             # "adam" | "adamw" | "ranger"
+  learnrate: 1e-4           # 3e-4 # 1e-4
+  weight_decay: 0.0
+  decay: True # False
+  reduce_iteration: 10_000 # 6_000
+  random_seed: 86
+
+  mini_data: False # True when developing model
+  cuda: True
+  num_workers: 12 # 6 for Score Calculating
+  batch_size: 12
+
+  # Infer and Eval
+  run_infer: 'single' # 'multi'
+
+optim:
+  name: "adam"          # "adam" | "adamw"
+  lr: ${exp.learnrate}
+  weight_decay: 0.0
+
+
+feature:
+  audio_feature: "logmel"
+  classes_num: 88
+  # ---------------------------
+  # dataloader.py params
+  # Route IV keeps the Score-HPT / VeloEst front-end at 10 s.
+  # Only the frozen backend crop is ablated separately via proxy.backend_segment_seconds.
+  segment_seconds: 10.
+  hop_seconds: 1.
+  # ---------------------------
+  # feature_extractor.py params
+  # mel_bins: 229 # 去feature extractor里面手动定义吧
+  sample_rate: 22050
+  fft_size: 2048
+  frames_per_second: 100
+  augmentor: null
+  # ---------------------------
+  begin_note: 21
+  velocity_scale: 128
+  max_note_shift: 0
+
+
+dataset:
+  # Current built-in packers support maestro / smd / maps / francoisleduc.
+  train_set: "maestro"
+  test_set: "smd"
+  eval_sets: ["train", "maestro", "smd", "maps"]
+  has_velocity_target: true
+
+  # Use the same workspace root as features.py packs to
+  train_h5: "${exp.workspace}/hdf5s/${dataset.train_set}"
+  test_h5: "${exp.workspace}/hdf5s/${dataset.test_set}"
+
+  # Provide dataset dir to process the features.py
+  smd_dir: "../Dataset/SMD"
+  maestro_dir: "../Dataset/maestro-v3.0.0"
+  maps_dir: "../Dataset/MAPS"
+  francoisleduc_dir: "/media/mengh/SharedData/zhanh/Dataset/FrancoisLeducGuitarDataset"
+  francoisledu_dir: ${dataset.francoisleduc_dir}
+
+
+# ---------------------------
+# AMT modules (base model + adapter + conditioning)
+# ---------------------------
+model:
+  type: "hpt"  # hpt | hppnet | dynest
+  params: {}
+  # score-inf condition selector:
+  # direct: ignore input2/input3.
+  # bilstm/scrr/dual_gated: cond = selected non-null inputs from input2/input3.
+  # note_editor: input2 must be onset; input3 is null/frame/exframe.
+  input2: null # onset | frame | exframe | null
+  input3: null # onset | frame | exframe | null
+  kim_condition: "frame" # for FiLMUNetPretrained only: frame | none
+  pretrained_checkpoint: "" # explicit ckpt path for eval/infer (all model types)
+  hppnet_model_size: 128
+
+
+score_informed:
+  method: "direct"            # direct | scrr | dual_gated | note_editor | bilstm
+  params: {}
+  train_mode: "joint"         # joint | adapter_then_score | adapter_then_joint
+  switch_iteration: 100_000   # phase switch point for staged modes
+
+
+post:
+  post_processor_type: 'regression' # 'onsets_frames'
+  # regression (0.1, 0.3, 0.3), onsets_frames (0.5, 0.1, 0.3)
+  frame_threshold: 0.3 # 0.1 in RegressionPostProcessor, 0.3 in score_calculator
+  onset_threshold: 0.3
+  offset_threshold: 0.3
+  pedal_offset_threshold: 0.2
+
+# ---------------------------
+# Loss configuration
+# ---------------------------
+loss:
+  loss_type: "kim_bce_l1" # "velocity_bce" | "velocity_mse" | "kim_bce_l1"
+  kim_loss_alpha: 0.5  # Weight of BCE term in Kim et al. 2024 BCE+L1 loss
+  supervised_weight: 1.0
+  proxy_weight: 0.0
+  velocity_prior_weight: 0.0
+  velocity_prior_mean: 0.5
+  velocity_prior_min_var: 0.01
+  velocity_prior_onset_only: true
+
+# ---------------------------
+# Frozen differentiable supervision backend (weak supervision)
+# ---------------------------
+proxy:
+  enabled: false
+  # Historical namespace note: the `proxy` block now hosts two different backend families.
+  #   DiffSynth = DDSP-based differentiable synthesizer replacement of a black-box synthesizer
+  #   DiffProxy = differentiable proxy of a black-box synthesizer (SFProxy family)
+  # Preferred backend names are diffsynth_piano | diffsynth_guitar | diffproxy .
+  # Historical aliases ddsp_* / sfproxy* are still accepted. ddsp_guitar_synth also maps to diffsynth_guitar.
+  type: "diffsynth_piano"   # diffsynth_piano | diffsynth_guitar | diffproxy
+  checkpoint: ""            # backend ckpt path: DDSP uses .pth/.pt, SFProxy uses Lightning .ckpt
+  project_root: ""          # generic backend root fallback
+
+  # Backend-length ablation inside the fixed Score-HPT segment.
+  # Score-HPT / VeloEst stays at feature.segment_seconds=10.0 by default.
+  # DiffProxy can still run on 2 / 5 / 10 s backend crops inside that fixed front-end segment.
+  # Use 0 to fall back to each backend native/default segment length.
+  backend_segment_seconds: 2.0   # Route IV default backend crop; ablate with 5 | 10
+  crop_seconds: 0.0              # legacy alias for backend_segment_seconds
+  crop_mode: "random"           # random | center | full
+  warmup_iterations: 0           # delay proxy loss until base velocity branch stabilizes
+
+  # Unified supervision contract used by Score-HPT-side losses.
+  # Audio losses are evaluated after resampling rendered audio to this contract.
+  supervision:
+    sample_rate: ${feature.sample_rate}
+    frame_rate: ${feature.frames_per_second}
+    fft_size: ${feature.fft_size}
+    hop_size: 221                # fixed Route IV contract at 22050 Hz / 100 fps
+
+  # Legacy aliases kept for older DDSP-Piano runs. Prefer proxy.ddsp_piano.* instead.
+  sample_rate: 16000
+  frame_rate: 250
+
+  ddsp:
+    project_root: ""       # optional backend-specific root. default: ../synthesizer/ddsp-*
+
+  audio_loss:
+    type: "piano_ssm_spectral_plus_log_rms"   # multi_scale_stft | piano_ssm_combined | piano_ssm_combined_rm | piano_ssm_spectral | piano_ssm_spectral_plus_log_rms | piano_ssm_spectral_plus_ddsp_loudness | piano_ssm_chroma | global_rms | global_log_rms | ddsp_piano_loudness
+    # ---------------------------------------------------------------------
+    # Legacy multi-scale STFT loss used by the first proxy patch.
+    # ---------------------------------------------------------------------
+    multi_scale_stft:
+      fft_sizes: [512, 1024, 2048]
+      hop_ratio: 0.25
+      win_ratio: 1.0
+      spectral_convergence_weight: 1.0
+      log_mag_weight: 1.0
+      lin_mag_weight: 0.0
+      waveform_l1_weight: 0.0
+      eps: 1.0e-7
+
+    # ---------------------------------------------------------------------
+    # Piano-SSM SMML = STFT loss + Mel-STFT loss + mean loss.
+    # These losses are evaluated at proxy.supervision.sample_rate.
+    # ---------------------------------------------------------------------
+    piano_ssm_combined:
+      frame_length: null        # null -> proxy.supervision.sample_rate
+      stride: null              # null -> frame_length // 10
+      mel_fft_size: null        # null -> Piano-SSM repo scaling
+      mel_win_length: null
+      mel_hop_size: null
+      mel_n_mels: 128
+      mean_loss_abs: false      # false matches the original repo formulation
+      eps: 1.0e-7
+
+    # ---------------------------------------------------------------------
+    # Piano-SSM SMML-RM = STFT loss + Mel-STFT loss + RMS-matched loudness.
+    # This replaces the original mean term with a non-negative loudness term.
+    # ---------------------------------------------------------------------
+    piano_ssm_combined_rm:
+      frame_length: null
+      stride: null
+      mel_fft_size: null
+      mel_win_length: null
+      mel_hop_size: null
+      mel_n_mels: 128
+      rm_mode: "log_rms"       # log_rms | rms
+      rm_weight: 1.0
+      rm_loss_type: "L1"       # L1 | L2 | COSINE
+      rm_db_scale: true         # true -> dB-RMS, false -> natural log RMS
+      eps: 1.0e-7
+
+    # ---------------------------------------------------------------------
+    # Piano-SSM / DDSP-style multi-resolution spectral loss.
+    # Set fft_sizes: [] to use the Piano-SSM repo default scaling.
+    # ---------------------------------------------------------------------
+    piano_ssm_spectral:
+      fft_sizes: []
+      loss_type: "L1"          # L1 | L2 | COSINE
+      mag_weight: 1.0
+      logmag_weight: 1.0
+      overlap: 0.75
+      eps: 1.0e-5
+
+    # ---------------------------------------------------------------------
+    # Standalone loudness losses.
+    # global_log_rms is the conservative auxiliary branch.
+    # ddsp_piano_loudness uses proxy.supervision.frame_rate unless overridden.
+    # ---------------------------------------------------------------------
+    global_rms:
+      loss_type: "L1"
+      eps: 1.0e-7
+
+    global_log_rms:
+      loss_type: "L1"
+      db_scale: true
+      eps: 1.0e-7
+
+    ddsp_piano_loudness:
+      frame_rate: 250
+      n_fft: 2048
+      range_db: 120.0
+      ref_db: 0.0
+      loss_type: "L1"
+      eps: 1.0e-7
+
+    # ---------------------------------------------------------------------
+    # New default proxy objective.
+    # Main branch = Piano-SSM spectral loss.
+    # Auxiliary branch = small clip-level log-RMS loudness loss.
+    # ---------------------------------------------------------------------
+    piano_ssm_spectral_plus_log_rms:
+      spectral_weight: 1.0
+      log_rms_weight: 0.05
+
+    # ---------------------------------------------------------------------
+    # Stronger loudness-aware proxy objective.
+    # Auxiliary branch = DDSP-style loudness contour loss.
+    # ---------------------------------------------------------------------
+    piano_ssm_spectral_plus_ddsp_loudness:
+      spectral_weight: 1.0
+      loudness_weight: 0.05
+
+    # ---------------------------------------------------------------------
+    # Differentiable chroma-domain loss inspired by Piano-SSM ChromaLoss.
+    # ---------------------------------------------------------------------
+    piano_ssm_chroma:
+      fft_size: 4096
+      hop_size: 512
+      win_length: null
+      n_chroma: 12
+      threshold: 0.3
+      eps: 1.0e-5
+
+  ddsp_piano:
+    # Native DDSP-Piano training / checkpoint contract.
+    native_sample_rate: 22050
+    native_frame_rate: 100
+    native_segment_seconds: 10.0
+    # Current repo default contract for newly trained DDSP-Piano checkpoints.
+    # Historical upstream checkpoints may still use 16000 / 250 / 3.0.
+    sample_rate: 22050
+    frame_rate: 100
+    n_synths: 16
+    n_substrings: 2
+    n_piano_models: 10
+    piano_model_index: 0         # fallback instrument id when batch does not provide one
+    piano_model_batch_key: ""   # optional dataset key carrying per-sample piano model id
+    score_keys:
+      frame: "frame_roll"
+      onset: "onset_roll"
+      pedal: "pedal_frame_roll"
+
+  ddsp_guitar:
+    # Repo default guitar DiffSynth implementation now points to DDSP-Guitar-Synth.
+    # To switch back for ablation, keep proxy.type=diffsynth_guitar but set:
+    #   proxy.ddsp_guitar.implementation: ddsp_guitar
+    #   proxy.ddsp.project_root: /abs/path/to/synthesizer/ddsp-guitar
+    implementation: "ddsp_guitar_synth"   # ddsp_guitar_synth | ddsp_guitar
+    # Current repo default contract for newly trained DDSP-Guitar-Synth checkpoints.
+    # The actual renderer FPS is derived from sample_rate / hop_size.
+    # With sample_rate=22050 and target frame_rate=100, hop_size rounds to 221.
+    native_sample_rate: 22050
+    native_frame_rate: 100
+    native_segment_seconds: 10.0
+    sample_rate: 22050
+    frame_rate: 100
+    hop_size: 0              # 0 -> derive closest integer hop from sample_rate / frame_rate
+    n_fft: 2048
+    # Preferred names for tensors sent into DiffSynth-Guitar.
+    # Legacy proxy_* names are still accepted by the wrapper.
+    synth_input_keys:
+      midi_pitch: "synth_midi_pitch"
+      string_index: "synth_string_index"
+      midi_onsets: "synth_midi_onsets"
+      midi_activity: "synth_midi_activity"
+    source_frame_rate: ${feature.frames_per_second}
+    batch_frame_rate_key: "synth_input_frame_rate"
+
+  sfproxy:
+    project_root: ""        # optional backend-specific root. default: ../synth-proxy
+    instrument_name: "salamander_piano"
+    feature_name: "note_dynamics_v1"
+    # Route IV stable export contract.
+    native_sample_rate: 22050
+    native_segment_seconds: 2.0   # DiffProxy native/default contract; Route IV can still override to 5 | 10 s crops
+    sample_rate: 0            # 0 -> use proxy.supervision.sample_rate to align DiffProxy with Score-HPT
+    segment_seconds: 2.0      # legacy alias; native/default backend segment length
+    loss_type: "smooth_l1"   # smooth_l1 | l1 | mse
+    loss_beta: 1.0
+    use_gt_aligned_note_events: true   # use GT aligned note list; velocity is read from the predicted roll at each GT onset frame
+    note_builder:
+      onset_threshold: 0.5
+      frame_threshold: 0.5
+      max_notes: 512
+      min_duration_frames: 1
+    feature:
+      n_fft: 0                # 0 -> use proxy.supervision.fft_size
+      hop: 221                # fixed Route IV contract at 22050 Hz / 100 fps
+      win_length: null
+      harmonic_count: 5
+      band_bins: 1
+      energy_window_s: 0.12
+      onset_pre_s: 0.02
+      onset_post_s: 0.08
+      include_f0_ratio: false
+    model:
+      tokenizer:
+        d_model: 256
+        pitch_vocab: 128
+        use_onset_pos: true
+      num_layers: 6
+      nhead: 8
+      dim_feedforward: 1024
+      dropout: 0.1
+      d_note: 2
+      d_seg: 0

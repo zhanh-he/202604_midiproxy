@@ -1,0 +1,71 @@
+Goal
+Prepare FrancoisLeducGuitarDataset outputs so ddsp-guitar training can consume them with no changes to the model code.
+
+Target file format
+Produce two torch .pt files:
+- <something>_trn.pt
+- <something>_val.pt
+Each file should store a serialized GuitarSetDataset-style object dictionary so that data.GuitarSetDataset(None, prepared_path=...) can load it through self.__dict__ = torch.load(path).
+
+Required top-level fields in the serialized dict
+- sample_rate: int
+- feature_frame_rate: int
+- requested_features: any
+- data: list[dict]
+
+Required per-example fields inside data[i]
+- filename: str
+- clip_seconds: float
+- bpm: int or float
+- key: str
+- solo_or_comp: str
+- hex_audio: torch.FloatTensor [6, T_audio]
+- mic_audio: torch.FloatTensor [1, T_audio] or [T_audio] convertible to [1, T_audio]
+- hex_pitch: torch.FloatTensor [6, T_frames]
+- hex_periodicity: torch.FloatTensor [6, T_frames]
+- hex_loudness: torch.FloatTensor [6, T_frames]
+- hex_centroid: torch.FloatTensor [6, T_frames]
+- midi_pitch: torch.FloatTensor [6, T_frames]
+- midi_activity: torch.FloatTensor [6, T_frames]
+- midi_onsets: torch.FloatTensor [6, T_frames]
+- midi_offsets: torch.FloatTensor [6, T_frames]
+- midi_duration_since_previous_onset: torch.FloatTensor [6, T_frames]
+
+Important timing rules
+1. clip_seconds must match both audio length and frame count.
+2. T_frames should equal round(clip_seconds * feature_frame_rate).
+3. midi_onsets and midi_offsets must be binary frame masks aligned to midi_pitch.
+4. If the source dataset has note lists instead of frame tensors, rasterize them at feature_frame_rate.
+5. Use open-string indexing convention 0..5 consistently for all string-wise tensors.
+
+Audio contract expected by current unified training scripts
+- train_synthesis.py and train_control.py will resample the prepared dataset to:
+  - sample_rate = 22050
+  - frame_rate = 100
+  - segment_seconds = 10 / 5 / 2
+- Therefore the prepared dataset can be stored at another internal sample_rate / feature_frame_rate.
+- But storing it close to 22050 / 100 will reduce resampling error and preprocessing time.
+
+Minimal adapter strategy
+1. Reuse your FrancoisLeducGuitarDataset dataloader.
+2. For each example, create the required per-example dict above.
+3. Save one list for training and one list for validation.
+4. Wrap them in a top-level dict with sample_rate, feature_frame_rate, requested_features, and data.
+5. torch.save(top_level_dict, output_path)
+
+Validation checklist before training
+- Load with:
+  ds = data.GuitarSetDataset(None, prepared_path=output_path)
+- Then run:
+  ds.set_requested_features([... current ddsp-guitar training features ...])
+  ds.reindex_data(10)
+  sample = ds[0]
+- Confirm shapes:
+  sample['hex_audio'] -> [6, 220500] after resample to 22050 and 10 s
+  sample['mic_audio'] -> [1, 220500] or [220500]
+  sample['midi_pitch'] -> [6, 1000]
+  sample['midi_onsets'] -> [6, 1000]
+  sample['midi_activity'] -> [6, 1000]
+
+Preferred local command after conversion
+python train_synthesis.py   --segment_seconds 10   --sample_rate 22050   --frame_rate 100   --train_prepared_data_path /path/to/fl_train.pt   --val_prepared_data_path /path/to/fl_val.pt
