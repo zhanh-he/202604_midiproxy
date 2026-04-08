@@ -20,6 +20,14 @@ Current route naming:
 
 ## Scripts
 
+- `pytorch/direct_invension/route1_infer.py`
+  - Route I inference CLI
+  - same-structure MIDI export from dataset audio + GT MIDI
+
+- `pytorch/direct_invension/route1_evaluate.py`
+  - Route I evaluation CLI
+  - supports dataset GT layout and custom folder GT layout
+
 - `pytorch/velo_model/`
   - base velocity-estimation models
   - renamed from the older base-model package name
@@ -65,6 +73,21 @@ Run from:
 
 ```bash
 cd score_hpt
+```
+
+Route I inference:
+
+```bash
+python pytorch/direct_invension/route1_infer.py \
+  dataset.test_set=smd
+```
+
+Route I evaluation:
+
+```bash
+python pytorch/direct_invension/route1_evaluate.py \
+  dataset.test_set=smd \
+  route1.eval.instrument_path=/path/to/soundfont.sf2
 ```
 
 Route II:

@@ -7,7 +7,8 @@ from typing import Dict, List, Optional, Sequence
 
 
 SMD_EXCLUDED = {"Beethoven_WoO080_001_20081107-SMD"}
-FRANCOISLEDUC_ALIASES = {"francoisleduc", "francoisledu"}
+FRANCOISLEDUC_ALIASES = {"francoisleduc"}
+GAPS_ALIASES = {"gaps"}
 
 
 def _normalize_split(split: str) -> str:
@@ -34,6 +35,8 @@ def normalize_dataset_type(dataset_type: str) -> str:
     dataset_type = (dataset_type or "").strip().lower()
     if dataset_type in FRANCOISLEDUC_ALIASES:
         return "francoisleduc"
+    if dataset_type in GAPS_ALIASES:
+        return "gaps"
     return dataset_type
 
 
@@ -61,6 +64,26 @@ def _read_francoisleduc_metadata(dataset_dir: Path) -> List[Dict[str, str]]:
         )
     with metadata_path.open("r", encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
+
+
+def _read_gaps_metadata(dataset_dir: Path) -> List[Dict[str, str]]:
+    metadata_path = dataset_dir / "gaps_metadata_with_splits.csv"
+    if not metadata_path.exists():
+        raise FileNotFoundError(
+            f"GAPS metadata not found under: {dataset_dir}. "
+            "Expected gaps_metadata_with_splits.csv"
+        )
+    with metadata_path.open("r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _normalize_gaps_split(split: str) -> str:
+    token = (split or "").strip().lower()
+    if token in ("", "valid", "validate", "validation", "val"):
+        return "validation"
+    if token in ("train", "test"):
+        return token
+    raise ValueError(f"Unsupported GAPS split: {split}")
 
 
 def scan_midis(
@@ -101,6 +124,17 @@ def scan_midis(
             if p.exists():
                 mids.append(p)
         return mids
+    if dataset_type == "gaps":
+        split = _normalize_split(split)
+        mids: List[Path] = []
+        for row in _read_gaps_metadata(dataset_dir):
+            row_split = _normalize_gaps_split(row.get("split", ""))
+            if split != "all" and row_split != split:
+                continue
+            p = dataset_dir / row["midi_path"]
+            if p.exists():
+                mids.append(p)
+        return mids
     raise ValueError(f"Unsupported dataset_type: {dataset_type}")
 
 
@@ -128,6 +162,15 @@ def load_maestro_audio_map(
             if split != "all" and row.get("split", "").lower() != split:
                 continue
             out[row["midi_filename"]] = dataset_dir / row["audio_filename"]
+        return out
+    if dataset_type == "gaps":
+        split = _normalize_split(split)
+        out: Dict[str, Path] = {}
+        for row in _read_gaps_metadata(dataset_dir):
+            row_split = _normalize_gaps_split(row.get("split", ""))
+            if split != "all" and row_split != split:
+                continue
+            out[row["midi_path"]] = dataset_dir / row["audio_path"]
         return out
     if dataset_type != "maestro":
         return {}
@@ -178,6 +221,14 @@ def resolve_real_audio(
         p = maestro_audio_map[key]
         if not p.exists():
             raise FileNotFoundError(f"FrancoisLeduc real audio missing: {p}")
+        return p
+    if dataset_type == "gaps":
+        key = str(midi_path.relative_to(dataset_dir))
+        if key not in maestro_audio_map:
+            raise FileNotFoundError(f"GAPS audio mapping not found for MIDI: {key}")
+        p = maestro_audio_map[key]
+        if not p.exists():
+            raise FileNotFoundError(f"GAPS real audio missing: {p}")
         return p
     raise ValueError(f"Unsupported dataset_type: {dataset_type}")
 

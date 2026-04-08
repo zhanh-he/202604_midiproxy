@@ -1,138 +1,107 @@
-"""
-Lightning Module for training the preset encoder.
-"""
+from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from lightning import LightningModule
-from lightning.pytorch.loggers.wandb import WandbLogger
-from lightning.pytorch.utilities.types import STEP_OUTPUT
 import torch
+from lightning import LightningModule
 from torch import nn
+from torch.nn import functional as F
 
-from utils.evaluation import compute_mrr
-from utils.logging import RankedLogger
+from common.logging import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-class PresetEmbeddingLitModule(LightningModule):
-    """
-    Lightning Module for training the preset encoder.
-    """
+def masked_smooth_l1(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Huber loss averaged over valid tokens."""
+    if pred.shape != target.shape:
+        raise ValueError(f"pred shape {pred.shape} != target shape {target.shape}")
+    if mask.ndim != 2:
+        raise ValueError("mask must be (B, N)")
+
+    w = mask.to(pred.dtype).unsqueeze(-1)
+    denom = torch.clamp(w.sum(), min=1.0)
+    loss = F.smooth_l1_loss(pred * w, target * w, reduction="sum") / denom
+    return loss
+
+
+def masked_mae(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    w = mask.to(pred.dtype).unsqueeze(-1)
+    denom = torch.clamp(w.sum(), min=1.0)
+    err = torch.abs(pred - target) * w
+    return err.sum() / denom
+
+
+class NoteProxyLitModule(LightningModule):
+    """Lightning module for note proxy training."""
 
     def __init__(
         self,
-        preset_encoder: nn.Module,
-        loss: nn.Module = None,
-        optimizer: torch.optim.Optimizer = None,
-        lr: float = None,
+        model: nn.Module,
+        lr: float = 1e-4,
+        optimizer: torch.optim.Optimizer = torch.optim.AdamW,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
-        wandb_watch_args: Optional[Dict[str, Any]] = None,
+        seg_loss_weight: float = 0.05,
     ):
         super().__init__()
-        self.preset_encoder = preset_encoder
-        self.loss = loss
-        self.optimizer = optimizer
-        self.lr = lr
-        self.scheduler = scheduler
+        self.model = model
+        self.lr = float(lr)
+        self.optimizer_cls = optimizer
+        self.scheduler_cls = scheduler
         self.scheduler_config = scheduler_config
+        self.seg_loss_weight = float(seg_loss_weight)
 
-        self.wandb_watch_args = wandb_watch_args
+    def forward(self, pitch: torch.Tensor, cont: torch.Tensor, mask: torch.Tensor):
+        return self.model(pitch=pitch, cont=cont, mask=mask)
 
-        self.mrr_preds = []
-        self.mrr_targets = None
+    def _step(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        pitch = batch["pitch"].to(torch.long)
+        cont = batch["cont"].to(torch.float32)
+        mask = batch["mask"].to(torch.bool)
+        target_note = batch["target_note"].to(torch.float32)
 
-        # distance for MRR
-        if isinstance(loss, nn.L1Loss):
-            self.p_norm_validation = 1
-        elif isinstance(loss, nn.MSELoss):
-            self.p_norm_validation = 2
-        else:
-            raise NotImplementedError(f"p-norm for loss {loss} not implemented")
+        pred_note, pred_seg = self(pitch, cont, mask)
 
-        # self.save_hyperparameters("optimizer", "lr", "scheduler")
+        loss_note = masked_smooth_l1(pred_note, target_note, mask)
+        mae_note = masked_mae(pred_note, target_note, mask)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.preset_encoder(x)
+        loss = loss_note
 
-    def _model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        preset, audio_embedding = batch
-        preset_embedding = self(preset)
-        return preset_embedding, audio_embedding
+        metrics = {
+            "loss_note": loss_note.detach(),
+            "mae_note": mae_note.detach(),
+        }
 
-    def on_train_start(self) -> None:
-        if not isinstance(self.logger, WandbLogger) or self.wandb_watch_args is None:
-            log.info("Skipping watching model.")
-        else:
-            self.logger.watch(
-                self.preset_encoder,
-                log=self.wandb_watch_args["log"],
-                log_freq=self.wandb_watch_args["log_freq"],
-                log_graph=False,
-            )
+        if pred_seg is not None and "target_seg" in batch:
+            target_seg = batch["target_seg"].to(torch.float32)
+            loss_seg = F.smooth_l1_loss(pred_seg, target_seg)
+            loss = loss + self.seg_loss_weight * loss_seg
+            metrics["loss_seg"] = loss_seg.detach()
 
-    def training_step(self, batch, batch_idx: int):
-        preset_embedding, audio_embedding = self._model_step(batch)
-        loss = self.loss(preset_embedding, audio_embedding)
-        self.log("train/loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        metrics["loss"] = loss.detach()
+
+        return loss, metrics
+
+    def training_step(self, batch: Any, batch_idx: int):
+        loss, metrics = self._step(batch)
+        self.log("train/loss", metrics["loss"], prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train/note_mae", metrics["mae_note"], prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
-    def on_train_end(self) -> None:
-        if isinstance(self.logger, WandbLogger) and self.wandb_watch_args is not None:
-            self.logger.experiment.unwatch(self.preset_encoder)
+    def validation_step(self, batch: Any, batch_idx: int):
+        _, metrics = self._step(batch)
+        self.log("val/loss", metrics["loss"], prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val/note_mae", metrics["mae_note"], prog_bar=True, on_step=False, on_epoch=True)
 
-    def on_validation_epoch_start(self) -> None:
-        self.mrr_preds.clear()
-        self.mrr_targets = None
+    def configure_optimizers(self):
+        opt = self.optimizer_cls(self.parameters(), lr=self.lr)
 
-    def validation_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> STEP_OUTPUT:
-        preset_embedding, audio_embedding = self._model_step(batch)
-        # Val Loss
-        loss = self.loss(preset_embedding, audio_embedding)
-        self.log("val/loss", loss, on_step=False, on_epoch=True)
-        # Get target and preds for MRR
-        if batch_idx == 0:
-            self.mrr_targets = audio_embedding
-        self.mrr_preds.append(preset_embedding)
+        if self.scheduler_cls is None:
+            return {"optimizer": opt}
 
-    def on_validation_epoch_end(self) -> None:
-        # skip following if len(self.mrr_preds) == 1 since no ranking can be done, i.e.,
-        # there is only a single prediction per ranking evaluation.
-        # This can happen if the model is loaded from a checkpoint with
-        # save_on_train_epoch_end=False (e.g., when monitoring a validation metric).
-        if len(self.mrr_preds) <= 1:
-            log.info("Number of predictions per ranking evaluation is less than 2. Skipping MRR evaluation.")
-            # logging dummy value to avoid Lightning MisconfigurationException...
-            # Note that this will overwrite the last logged value if resuming the same wandb run.
-            # Hence a new wandb run should be created instead.
-            self.log("val/mrr", -1, prog_bar=True, on_step=False, on_epoch=True)
-            return
-
-        num_eval, preds_dim = self.mrr_targets.shape
-        # unsqueeze for torch.cdist (one target per eval) -> shape: (num_eval, 1, dim)
-        targets = self.mrr_targets.unsqueeze_(1)
-        # concatenate and reshape for torch.cdist-> shape (num_eval, num_preds_per_eval, dim)
-        preds = torch.cat(self.mrr_preds, dim=1).view(num_eval, -1, preds_dim)
-        mrr_score = compute_mrr(preds, targets, index=0, p=self.p_norm_validation)
-        self.log("val/mrr", mrr_score, prog_bar=True, on_step=False, on_epoch=True)
-
-    def configure_optimizers(self) -> Any:
-        optimizer = self.optimizer(params=self.preset_encoder.parameters(), lr=self.lr)
-
-        if self.scheduler is None:
-            return {"optimizer": optimizer}
-
-        scheduler = self.scheduler(optimizer=optimizer)
-
-        if self.scheduler_config is None:
-            scheduler_config = {"interval": "step", "frequency": 1}
-        else:
-            scheduler_config = self.scheduler_config
-
-        scheduler_config["scheduler"] = scheduler
-
-        return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
+        sched = self.scheduler_cls(optimizer=opt)
+        cfg = self.scheduler_config or {"interval": "step", "frequency": 1}
+        cfg = dict(cfg)
+        cfg["scheduler"] = sched
+        return {"optimizer": opt, "lr_scheduler": cfg}

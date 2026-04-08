@@ -58,7 +58,7 @@ F_gt     = FeatureExtractor(audio_gt, notes)
 
 In this codebase, the feature extractor is not the proxy model. It is the
 hand-defined dynamics feature extractor in
-[src/sfproxy/features/dynamics.py](/media/mengh/SharedData/zhanh/synth-proxy_v1/src/sfproxy/features/dynamics.py),
+[src/features/dynamics.py](/media/mengh/SharedData/zhanh/202604_midiproxy/synth-proxy/src/features/dynamics.py),
 which currently produces note-level features such as:
 
 - harmonic energy

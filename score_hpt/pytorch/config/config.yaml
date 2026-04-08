@@ -1,5 +1,5 @@
 wandb:
-  project: "202602_smc"
+  project: "202604_sfproxy"
   name: ""
   comment: "mel229"
 
@@ -59,10 +59,10 @@ feature:
 
 
 dataset:
-  # Current built-in packers support maestro / smd / maps / francoisleduc.
+  # Current built-in packers support maestro / smd / maps / francoisleduc / gaps.
   train_set: "maestro"
+  eval_sets: ["train", "maestro", "smd"] # "maps", "francoisleduc", "gaps"
   test_set: "smd"
-  eval_sets: ["train", "maestro", "smd", "maps"]
   has_velocity_target: true
 
   # Use the same workspace root as features.py packs to
@@ -70,11 +70,11 @@ dataset:
   test_h5: "${exp.workspace}/hdf5s/${dataset.test_set}"
 
   # Provide dataset dir to process the features.py
-  smd_dir: "../Dataset/SMD"
-  maestro_dir: "../Dataset/maestro-v3.0.0"
-  maps_dir: "../Dataset/MAPS"
-  francoisleduc_dir: "/media/mengh/SharedData/zhanh/Dataset/FrancoisLeducGuitarDataset"
-  francoisledu_dir: ${dataset.francoisleduc_dir}
+  smd_dir: "../../Dataset/SMD"
+  maestro_dir: "../../Dataset/maestro-v3.0.0"
+  maps_dir: "../../Dataset/MAPS"
+  francoisleduc_dir: "../../Dataset/FrancoisLeducGuitarDataset"
+  gaps_dir: "../../Dataset/GAPS"
 
 
 # ---------------------------
@@ -121,6 +121,23 @@ loss:
   velocity_prior_mean: 0.5
   velocity_prior_min_var: 0.01
   velocity_prior_onset_only: true
+
+train_eval:
+  audio_metrics:
+    enabled: false                    # turn on only on machines that can render via SF2/SFZ
+    include_train: false              # keep training-time rendering cost focused on validation splits
+    max_segments: 4                   # rendered segments per evaluated loader and eval interval
+    instrument_path: ${route2.eval.instrument_path}
+    render_sr: ${route2.eval.render_sr}
+    eval_sr: ${route2.eval.eval_sr}
+    frames_per_second: ${route2.eval.frames_per_second}
+    fft_size: ${route2.eval.fft_size}
+    bssl_mode: ${route2.eval.bssl_mode}
+    num_samples: ${route2.eval.num_samples}
+    normalization: ${route2.eval.normalization}
+    backend: ${route2.eval.backend}
+    device: ""                        # empty -> let the BSSL evaluator choose
+    velocity_method: ${route2.infer.velocity_method}
 
 # ---------------------------
 # Frozen differentiable supervision backend (weak supervision)
@@ -314,7 +331,7 @@ proxy:
     batch_frame_rate_key: "synth_input_frame_rate"
 
   sfproxy:
-    project_root: ""        # optional backend-specific root. default: ../synth-proxy
+    project_root: ""        # optional backend-specific root. default: ../synth-proxy (flat src/ + configs/)
     instrument_name: "salamander_piano"
     feature_name: "note_dynamics_v1"
     # Route IV stable export contract.
@@ -351,3 +368,109 @@ proxy:
       dropout: 0.1
       d_note: 2
       d_seg: 0
+
+
+# ---------------------------
+# Route I direct inversion helpers
+# ---------------------------
+route1:
+  stats_json: ""    # empty -> auto pick by dataset.test_set
+
+  infer:
+    out_dir: "${exp.workspace}/route1/${dataset.test_set}"
+    split: "test"
+    maps_pianos: "both"
+    overwrite: false
+    flat_velocity: 64
+    mapping_mode: "rank_blend"
+    harmonic_weight: 1.0
+    flux_weight: 0.25
+    fallback_velocity: 64
+    note_sample_rate: ${feature.sample_rate}
+    note_fft_size: ${feature.fft_size}
+    note_hop: ${proxy.supervision.hop_size}
+    harmonic_count: 5
+    band_bins: 1
+    energy_window_s: 0.12
+    onset_pre_s: 0.02
+    onset_post_s: 0.08
+
+  eval:
+    label: "route1"
+    pred_midi_dir: "${route1.infer.out_dir}/pred_midis"
+    out_dir: "${exp.workspace}/route1_eval/${dataset.test_set}"
+    manifest_mode: "dataset"          # dataset | folder
+    audio_reference_mode: "dataset"   # dataset | folder | none
+    gt_midi_dir: ""                   # required when manifest_mode=folder
+    reference_audio_dir: ""           # required when audio_reference_mode=folder
+    instrument_path: ""
+    split: "test"
+    maps_pianos: "both"
+    render_sr: 44100
+    eval_sr: ${proxy.supervision.sample_rate}
+    frames_per_second: ${feature.frames_per_second}
+    fft_size: ${proxy.supervision.fft_size}
+    bssl_mode: "sone"
+    num_samples: 2048
+    normalization: "zscore"
+    backend: "auto"
+    overwrite_render: false
+
+flat:
+  infer:
+    out_dir: "${exp.workspace}/flat/${dataset.test_set}"
+    split: "test"
+    maps_pianos: "both"
+    overwrite: false
+    flat_velocity: 64
+
+  eval:
+    label: "flat_velocity_${flat.infer.flat_velocity}"
+    pred_midi_dir: "${flat.infer.out_dir}/pred_midis"
+    out_dir: "${exp.workspace}/flat_eval/${dataset.test_set}"
+    manifest_mode: "dataset"          # dataset | folder
+    audio_reference_mode: "dataset"   # dataset | folder | none
+    gt_midi_dir: ""                   # required when manifest_mode=folder
+    reference_audio_dir: ""           # required when audio_reference_mode=folder
+    instrument_path: ""
+    split: "test"
+    maps_pianos: "both"
+    render_sr: 44100
+    eval_sr: ${proxy.supervision.sample_rate}
+    frames_per_second: ${feature.frames_per_second}
+    fft_size: ${proxy.supervision.fft_size}
+    bssl_mode: "sone"
+    num_samples: 2048
+    normalization: "zscore"
+    backend: "auto"
+    overwrite_render: false
+
+route2:
+  infer:
+    checkpoint_path: ""                      # empty -> resolve from model.pretrained_checkpoint or latest checkpoint
+    out_dir: "${exp.workspace}/route2/${dataset.test_set}"
+    split: "test"
+    maps_pianos: "both"
+    overwrite: false
+    velocity_method: "onset_only"           # onset_only | max_frame
+
+  eval:
+    label: "route2"
+    pred_midi_dir: "${route2.infer.out_dir}/pred_midis"
+    out_dir: "${exp.workspace}/route2_eval/${dataset.test_set}"
+    manifest_mode: "dataset"          # dataset | folder
+    audio_reference_mode: "dataset"   # dataset | folder | none
+    gt_midi_dir: ""                   # required when manifest_mode=folder
+    reference_audio_dir: ""           # required when audio_reference_mode=folder
+    instrument_path: ""
+    split: "test"
+    maps_pianos: "both"
+    render_sr: 44100
+    eval_sr: ${proxy.supervision.sample_rate}
+    frames_per_second: ${feature.frames_per_second}
+    fft_size: ${proxy.supervision.fft_size}
+    bssl_mode: "sone"
+    num_samples: 2048
+    normalization: "zscore"
+    backend: "auto"
+    overwrite_render: false

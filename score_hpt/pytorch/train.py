@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 import wandb
 
 from pytorch_utils import move_data_to_device, log_velocity_rolls
-from data_generator import (Maestro_Dataset, SMD_Dataset, MAPS_Dataset, FrancoisLeduc_Dataset,
+from data_generator import (Maestro_Dataset, SMD_Dataset, MAPS_Dataset, FrancoisLeduc_Dataset, GAPS_Dataset,
      Sampler, EvalSampler, collate_fn)
 from utilities import create_folder, create_logging, get_model_name
 from losses import get_loss_func
@@ -80,8 +80,12 @@ def init_wandb(cfg):
 
 
 def _select_velocity_metrics(statistics):
-    keep_keys = ("frame_max_error", "frame_max_std",
-        "onset_masked_error", "onset_masked_std")
+    keep_keys = (
+        "frame_max_error",
+        "onset_masked_error",
+        "real_pred_bssl_pearson_correlation",
+        "real_pred_bstl_pearson_correlation",
+    )
     return {k: statistics[k] for k in keep_keys if k in statistics}
 
 
@@ -236,7 +240,7 @@ def build_dataloaders(cfg):
         "smd": SMD_Dataset,
         "maps": MAPS_Dataset,
         "francoisleduc": FrancoisLeduc_Dataset,
-        "francoisledu": FrancoisLeduc_Dataset,
+        "gaps": GAPS_Dataset,
     }
     if cfg.dataset.train_set not in dataset_classes:
         raise KeyError(f"Unknown train_set '{cfg.dataset.train_set}'. Available: {list(dataset_classes.keys())}")
@@ -401,7 +405,7 @@ def train(cfg):
             logging.info(f"Iteration: {iteration}/{cfg.exp.total_iteration}")
             train_fin_time = time.time()
             avg_train_loss = None
-            if train_loss_steps > 0 and iteration != 0:
+            if train_loss_steps > 0:
                 avg_train_loss = train_loss / train_loss_steps
 
             log_payload = {"iteration": iteration}
@@ -410,11 +414,24 @@ def train(cfg):
                 log_payload["train_loss"] = avg_train_loss
 
             for eval_name, loader in eval_loaders.items():
-                eval_stats = _select_velocity_metrics(evaluator.evaluate(loader))
+                eval_result = evaluator.evaluate(
+                    loader,
+                    loss_fn=loss_fn,
+                    target_rolls=target_rolls,
+                    eval_name=eval_name,
+                )
+                eval_stats = _select_velocity_metrics(eval_result)
+                eval_loss = eval_result.get("avg_loss")
                 if eval_name == "train":
+                    if eval_loss is not None:
+                        logging.info(f"    Train Eval Loss: {eval_loss:.4f}")
+                        log_payload["train_eval_loss"] = eval_loss
                     logging.info(f"    Train Stat: {eval_stats}")
                     log_payload["train_stat"] = eval_stats
                 else:
+                    if eval_loss is not None:
+                        logging.info(f"    Valid {eval_name.upper()} Loss: {eval_loss:.4f}")
+                        log_payload[f"valid_{eval_name}_loss"] = eval_loss
                     logging.info(f"    Valid {eval_name.upper()} Stat: {eval_stats}")
                     log_payload[f"valid_{eval_name}_stat"] = eval_stats
 

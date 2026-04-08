@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SFProxy ablations.
+# Train the three SFProxy ablation models we actually care about:
+# - coverage_v2
+# - realism_v2
+# - mixed_v2
+#
+# Data is prepared once and then reused automatically. This lets you tweak
+# model/loss settings later without re-exporting synthetic data.
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-
-INSTRUMENT="${1:-${INSTRUMENT:-piano}}"
-DEFAULT_PIANO_INSTRUMENT_PATH="/media/mengh/SharedData/zhanh/202601_midisemi_data/soundfont/SalamanderGrandPiano-SFZ/SalamanderGrandPianoV3.sfz"
-DEFAULT_GUITAR_INSTRUMENT_PATH="/media/mengh/SharedData/zhanh/202601_midisemi_data/soundfont/SpanishClassicalGuitar-SFZ/SpanishClassicalGuitar-20190618.sfz"
 
 MACHINE="${MACHINE:-5090}"
 case "${MACHINE}" in
@@ -27,40 +30,93 @@ esac
 
 WORKSPACE_BASE="${WORKSPACE_BASE:-${DEFAULT_WORKSPACE_BASE}}"
 ANALYSIS_DIR="${ANALYSIS_DIR:-${DEFAULT_ANALYSIS_DIR}}"
-DISCOVER_BOUNDARIES="${DISCOVER_BOUNDARIES:-0}"
+
+INSTRUMENT="${1:-${INSTRUMENT:-piano}}"
+GUITAR_DATASET="${GUITAR_DATASET:-francoisleduc}"
+SEGMENT_LIST="${SEGMENT_LIST:-2 5 10}"
+BOUNDARY_MODE_LIST="${BOUNDARY_MODE_LIST:-default fixed discovered}"
+TRAIN_PRESETS="${TRAIN_PRESETS:-coverage_v2 realism_v2 mixed_v2}"
+
+TRAIN_DATASET_SIZE="${TRAIN_DATASET_SIZE:-20000}"
+VAL_DATASET_SIZE="${VAL_DATASET_SIZE:-2000}"
+REUSE_DATA="${REUSE_DATA:-1}"
+DISCOVER_BOUNDARIES="${DISCOVER_BOUNDARIES:-1}"
+
+MIXED_COMPONENT_NAMES="${MIXED_COMPONENT_NAMES:-boundary coverage realism stress}"
+MIXED_WEIGHTS="${MIXED_WEIGHTS:-0.30 0.40 0.20 0.10}"
+
+WANDB_PROJECT="${WANDB_PROJECT:-sfproxy_ablation}"
+WANDB_GROUP="${WANDB_GROUP:-sfproxy_${INSTRUMENT}_ablation}"
 
 EXTRA_EXPORT_OVERRIDES="${EXTRA_EXPORT_OVERRIDES:-}"
 EXTRA_TRAIN_OVERRIDES="${EXTRA_TRAIN_OVERRIDES:-}"
 
-TRAIN_CONFIG="train"
-DATASET_NAME="${INSTRUMENT}"
+normalize_list() {
+  local raw="$1"
+  raw="${raw//,/ }"
+  local -a items=()
+  read -r -a items <<< "${raw}"
+  echo "${items[*]}"
+}
+
+MIXED_COMPONENT_NAMES="$(normalize_list "${MIXED_COMPONENT_NAMES}")"
+MIXED_WEIGHTS="$(normalize_list "${MIXED_WEIGHTS}")"
+TRAIN_PRESETS="$(normalize_list "${TRAIN_PRESETS}")"
+
+if [[ "${MIXED_COMPONENT_NAMES}" != "boundary coverage realism stress" ]]; then
+  echo "This ablation script expects the four mixed components in order: boundary coverage realism stress." >&2
+  exit 1
+fi
+
+read -r -a mixed_weights <<< "${MIXED_WEIGHTS}"
+if [[ "${#mixed_weights[@]}" -ne 4 ]]; then
+  echo "MIXED_WEIGHTS must contain exactly four values: boundary coverage realism stress." >&2
+  exit 1
+fi
+
+normalize_preset_name() {
+  case "$1" in
+    coverage_shared_legacy) echo "coverage_v1" ;;
+    realism_shared_legacy) echo "realism_v1" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+sanitize_weight_token() {
+  local token="$1"
+  token="${token//./p}"
+  token="${token//-/_}"
+  echo "${token}"
+}
+
+mixed_train_tag() {
+  if [[ "${MIXED_WEIGHTS}" == "0.30 0.40 0.20 0.10" ]]; then
+    echo "mixed_v2"
+    return 0
+  fi
+  echo "mixed_v2_b$(sanitize_weight_token "${mixed_weights[0]}")_c$(sanitize_weight_token "${mixed_weights[1]}")_r$(sanitize_weight_token "${mixed_weights[2]}")_s$(sanitize_weight_token "${mixed_weights[3]}")"
+}
 
 case "${INSTRUMENT}" in
   piano)
-    EXPORT_CONFIG="data_piano"
     INSTRUMENT_NAME="salamander_piano"
-    DEFAULT_SEGMENT_LIST="2 5 10"
-    DEFAULT_SAMPLER_PRESETS="coverage_shared_legacy coverage_v2 mixed_v2"
-    DEFAULT_BOUNDARY_MODE_LIST="default fixed discovered"
-    DEFAULT_INSTRUMENT_PATH="${DEFAULT_PIANO_INSTRUMENT_PATH}"
-    DEFAULT_BOUNDARY_JSON="${ANALYSIS_DIR}/stats/sfproxy_boundaries/salamander_piano_boundaries.json"
-    PITCH_MIN=21
-    PITCH_MAX=108
-    PITCH_STEP=6
-    REGISTER_SPLITS=(48 72)
+    DATASET_NAME="piano"
     ;;
   guitar)
-    EXPORT_CONFIG="data_guitar"
-    INSTRUMENT_NAME="guitar"
-    DEFAULT_SEGMENT_LIST="2 5"
-    DEFAULT_SAMPLER_PRESETS="coverage_shared_legacy coverage_v2 mixed_v2"
-    DEFAULT_BOUNDARY_MODE_LIST="default fixed discovered"
-    DEFAULT_INSTRUMENT_PATH="${DEFAULT_GUITAR_INSTRUMENT_PATH}"
-    DEFAULT_BOUNDARY_JSON="${ANALYSIS_DIR}/stats/sfproxy_boundaries/guitar_boundaries.json"
-    PITCH_MIN=42
-    PITCH_MAX=72
-    PITCH_STEP=3
-    REGISTER_SPLITS=(52 64)
+    case "${GUITAR_DATASET}" in
+      francoisleduc)
+        INSTRUMENT_NAME="guitar"
+        DATASET_NAME="guitar"
+        ;;
+      gaps)
+        INSTRUMENT_NAME="guitar_gaps"
+        DATASET_NAME="guitar_gaps"
+        ;;
+      *)
+        echo "Unsupported GUITAR_DATASET='${GUITAR_DATASET}'." >&2
+        exit 1
+        ;;
+    esac
     ;;
   *)
     echo "Unsupported INSTRUMENT='${INSTRUMENT}'. Expected 'piano' or 'guitar'." >&2
@@ -68,151 +124,85 @@ case "${INSTRUMENT}" in
     ;;
 esac
 
-INSTRUMENT_PATH="${INSTRUMENT_PATH:-${DEFAULT_INSTRUMENT_PATH}}"
-SEGMENT_LIST="${SEGMENT_LIST:-${DEFAULT_SEGMENT_LIST}}"
-SAMPLER_PRESETS="${SAMPLER_PRESETS:-${DEFAULT_SAMPLER_PRESETS}}"
-BOUNDARY_MODE_LIST="${BOUNDARY_MODE_LIST:-${DEFAULT_BOUNDARY_MODE_LIST}}"
-BOUNDARY_JSON="${BOUNDARY_JSON:-${DEFAULT_BOUNDARY_JSON}}"
+prepare_data() {
+  local preset="$1"
+  local segment_seconds="$2"
+  local boundary_mode="$3"
 
-mkdir -p "${WORKSPACE_BASE}" "${ANALYSIS_DIR}/stats/sfproxy_boundaries"
+  INSTRUMENT="${INSTRUMENT}" \
+  GUITAR_DATASET="${GUITAR_DATASET}" \
+  WORKSPACE_BASE="${WORKSPACE_BASE}" \
+  ANALYSIS_DIR="${ANALYSIS_DIR}" \
+  TARGET_PRESET="${preset}" \
+  SEGMENT_SECONDS="${segment_seconds}" \
+  BOUNDARY_MODE="${boundary_mode}" \
+  TRAIN_DATASET_SIZE="${TRAIN_DATASET_SIZE}" \
+  VAL_DATASET_SIZE="${VAL_DATASET_SIZE}" \
+  REUSE_DATA="${REUSE_DATA}" \
+  DISCOVER_BOUNDARIES="${DISCOVER_BOUNDARIES}" \
+  MIXED_COMPONENT_NAMES="${MIXED_COMPONENT_NAMES}" \
+  MIXED_WEIGHTS="${MIXED_WEIGHTS}" \
+  EXTRA_EXPORT_OVERRIDES="${EXTRA_EXPORT_OVERRIDES}" \
+  "${SCRIPT_DIR}/preprocess_sfproxy_data.sh"
+}
+
+run_train() {
+  local train_tag="$1"
+  local segment_seconds="$2"
+  local boundary_mode="$3"
+
+  WANDB_PROJECT="${WANDB_PROJECT}" \
+  WANDB_GROUP="${WANDB_GROUP}" \
+  python "${ROOT_DIR}/synth-proxy/src/train.py" \
+    --config-name train \
+    "paths.repo_root=${ROOT_DIR}" \
+    "paths.workspace_dir=${WORKSPACE_BASE}" \
+    "sampler_preset=${train_tag}" \
+    "segment_seconds=${segment_seconds}" \
+    "boundary_mode=${boundary_mode}" \
+    "dataset.name=${DATASET_NAME}" \
+    "dataset.train.instrument_name=${INSTRUMENT_NAME}" \
+    "dataset.val.instrument_name=${INSTRUMENT_NAME}" \
+    "reset_output_dir=true" \
+    "${extra_train_args[@]}"
+}
 
 cd "${ROOT_DIR}"
-
-run_boundary_discovery() {
-  local segment_seconds="$1"
-
-  if [[ -f "${BOUNDARY_JSON}" ]]; then
-    echo "Using existing boundary JSON: ${BOUNDARY_JSON}"
-    return 0
-  fi
-
-  if [[ "${DISCOVER_BOUNDARIES}" != "1" ]]; then
-    echo "Boundary JSON missing (${BOUNDARY_JSON}); fallback to default [0.33, 0.66]." >&2
-    return 0
-  fi
-
-  echo "Discovering velocity boundaries -> ${BOUNDARY_JSON}"
-  python "${ROOT_DIR}/synth-proxy/src/sfproxy/tools/discover_velocity_boundaries.py" \
-    --instrument_path "${INSTRUMENT_PATH}" \
-    --instrument_name "${INSTRUMENT_NAME}" \
-    --bank 0 \
-    --program 0 \
-    --sr 22050 \
-    --seg_len_s "${segment_seconds}" \
-    --pitch_min "${PITCH_MIN}" \
-    --pitch_max "${PITCH_MAX}" \
-    --pitch_step "${PITCH_STEP}" \
-    --register_splits "${REGISTER_SPLITS[@]}" \
-    --hop 221 \
-    --out_json "${BOUNDARY_JSON}"
-}
-
-make_boundary_overrides() {
-  local mode="$1"
-  local segment_seconds="$2"
-  local -n out_ref=$3
-  out_ref=()
-
-  case "${mode}" in
-    default)
-      ;;
-    fixed)
-      out_ref+=(
-        "sampler_options.coverage_v2.velocity_boundary_path=''"
-        "sampler_options.coverage_v2.velocity_boundary_strategy=global"
-        "sampler_options.realism_v2.velocity_boundary_path=''"
-        "sampler_options.realism_v2.velocity_boundary_strategy=global"
-        "sampler_options.mixed_v2.components.boundary.velocity_boundary_path=''"
-        "sampler_options.mixed_v2.components.boundary.velocity_boundary_strategy=global"
-        "sampler_options.mixed_v2.components.coverage.velocity_boundary_path=''"
-        "sampler_options.mixed_v2.components.coverage.velocity_boundary_strategy=global"
-        "sampler_options.mixed_v2.components.realism.velocity_boundary_path=''"
-        "sampler_options.mixed_v2.components.realism.velocity_boundary_strategy=global"
-        "sampler_options.mixed_v2.components.stress.velocity_boundary_path=''"
-        "sampler_options.mixed_v2.components.stress.velocity_boundary_strategy=global"
-      )
-      ;;
-    discovered)
-      run_boundary_discovery "${segment_seconds}"
-      out_ref+=(
-        "sampler_options.coverage_v2.velocity_boundary_path=${BOUNDARY_JSON}"
-        "sampler_options.realism_v2.velocity_boundary_path=${BOUNDARY_JSON}"
-        "sampler_options.mixed_v2.components.boundary.velocity_boundary_path=${BOUNDARY_JSON}"
-        "sampler_options.mixed_v2.components.coverage.velocity_boundary_path=${BOUNDARY_JSON}"
-        "sampler_options.mixed_v2.components.realism.velocity_boundary_path=${BOUNDARY_JSON}"
-        "sampler_options.mixed_v2.components.stress.velocity_boundary_path=${BOUNDARY_JSON}"
-      )
-      ;;
-    *)
-      echo "Unsupported BOUNDARY_MODE='${mode}'. Expected default, fixed, or discovered." >&2
-      exit 1
-      ;;
-  esac
-}
-
-read -r -a extra_export_args <<< "${EXTRA_EXPORT_OVERRIDES}"
 read -r -a extra_train_args <<< "${EXTRA_TRAIN_OVERRIDES}"
 
-for SEGMENT_SECONDS in ${SEGMENT_LIST}; do
-  SEGMENT_TAG="${SEGMENT_SECONDS%.0}"
+for segment_seconds in ${SEGMENT_LIST}; do
+  for boundary_mode in ${BOUNDARY_MODE_LIST}; do
+    for raw_preset in ${TRAIN_PRESETS}; do
+      preset="$(normalize_preset_name "${raw_preset}")"
+      case "${preset}" in
+        coverage_v2|realism_v2|mixed_v2)
+          ;;
+        *)
+          echo "Unsupported TRAIN_PRESET='${preset}'. Use coverage_v2, realism_v2, mixed_v2." >&2
+          exit 1
+          ;;
+      esac
 
-  for SAMPLER_PRESET in ${SAMPLER_PRESETS}; do
-    for BOUNDARY_MODE in ${BOUNDARY_MODE_LIST}; do
-      if [[ "${SAMPLER_PRESET}" == *legacy* && "${BOUNDARY_MODE}" == "discovered" ]]; then
-        continue
+      train_tag="${preset}"
+      if [[ "${preset}" == "mixed_v2" ]]; then
+        train_tag="$(mixed_train_tag)"
       fi
 
       echo "============================================================"
-      echo "Instrument      : ${INSTRUMENT_NAME}"
-      echo "Source file     : ${INSTRUMENT_PATH}"
-      echo "Segment seconds : ${SEGMENT_SECONDS}"
-      echo "Sampler preset  : ${SAMPLER_PRESET}"
-      echo "Boundary mode   : ${BOUNDARY_MODE}"
+      echo "Train preset     : ${preset}"
+      echo "Train tag        : ${train_tag}"
+      echo "Instrument       : ${INSTRUMENT_NAME}"
+      echo "Segment seconds  : ${segment_seconds}"
+      echo "Boundary mode    : ${boundary_mode}"
+      if [[ "${preset}" == "mixed_v2" ]]; then
+        echo "Mixed weights    : ${MIXED_WEIGHTS}"
+      fi
+      echo "W&B project      : ${WANDB_PROJECT}"
+      echo "W&B group        : ${WANDB_GROUP}"
       echo "============================================================"
 
-      boundary_overrides=()
-      make_boundary_overrides "${BOUNDARY_MODE}" "${SEGMENT_SECONDS}" boundary_overrides
-
-      python "${ROOT_DIR}/synth-proxy/src/sfproxy/export_dataset_pkl.py" \
-        --config-name "${EXPORT_CONFIG}" \
-        "paths.repo_root=${ROOT_DIR}" \
-        "paths.workspace_dir=${WORKSPACE_BASE}" \
-        "paths.analysis_dir=${ANALYSIS_DIR}" \
-        "instrument.path=${INSTRUMENT_PATH}" \
-        "instrument.seg_len_s=${SEGMENT_SECONDS}" \
-        "sampler_preset=${SAMPLER_PRESET}" \
-        "boundary_mode=${BOUNDARY_MODE}" \
-        "split=train" \
-        "reset_output_dir=true" \
-        "${boundary_overrides[@]}" \
-        "${extra_export_args[@]}"
-
-      python "${ROOT_DIR}/synth-proxy/src/sfproxy/export_dataset_pkl.py" \
-        --config-name "${EXPORT_CONFIG}" \
-        "paths.repo_root=${ROOT_DIR}" \
-        "paths.workspace_dir=${WORKSPACE_BASE}" \
-        "paths.analysis_dir=${ANALYSIS_DIR}" \
-        "instrument.path=${INSTRUMENT_PATH}" \
-        "instrument.seg_len_s=${SEGMENT_SECONDS}" \
-        "sampler_preset=${SAMPLER_PRESET}" \
-        "boundary_mode=${BOUNDARY_MODE}" \
-        "split=val" \
-        "reset_output_dir=true" \
-        "${boundary_overrides[@]}" \
-        "${extra_export_args[@]}"
-
-      python "${ROOT_DIR}/synth-proxy/src/sfproxy/train.py" \
-        --config-name "${TRAIN_CONFIG}" \
-        "paths.repo_root=${ROOT_DIR}" \
-        "paths.workspace_dir=${WORKSPACE_BASE}" \
-        "sampler_preset=${SAMPLER_PRESET}" \
-        "segment_seconds=${SEGMENT_SECONDS}" \
-        "boundary_mode=${BOUNDARY_MODE}" \
-        "dataset.name=${DATASET_NAME}" \
-        "dataset.train.instrument_name=${INSTRUMENT_NAME}" \
-        "dataset.val.instrument_name=${INSTRUMENT_NAME}" \
-        "reset_output_dir=true" \
-        "${extra_train_args[@]}"
+      prepare_data "${preset}" "${segment_seconds}" "${boundary_mode}"
+      run_train "${train_tag}" "${segment_seconds}" "${boundary_mode}"
     done
   done
 done

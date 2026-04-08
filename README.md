@@ -50,6 +50,8 @@ They are **not** the new repo defaults.
     - Route III: Score-Inf VeloEst + DiffSynth
     - Route IV: Score-Inf VeloEst + DiffProxy
   - training entry points:
+    - `pytorch/direct_invension/route1_infer.py`: Route I inference
+    - `pytorch/direct_invension/route1_evaluate.py`: Route I evaluation
     - `pytorch/train.py`: Route II
     - `pytorch/train_ddsp.py`: Route III
     - `pytorch/train_proxy.py`: Route IV
@@ -69,6 +71,13 @@ They are **not** the new repo defaults.
 
 - `synth-proxy/`
   - `DiffProxy` export and training code
+  - flat layout:
+    - `src/train.py`
+    - `src/export_dataset_pkl.py`
+    - `src/eval.py`
+    - `configs/train.yaml`
+    - `configs/data_*.yaml`
+    - `configs/eval.yaml`
 
 ## DDSP-Piano training
 
@@ -273,7 +282,8 @@ python train_midi_synth_unified.py \
 Project-local helper scripts are also available if you want to run preparation and training separately:
 
 ```bash
-bash synthesizer/ddsp-guitar-synth/run_prepare_unified.sh 10 /path/to/GuitarSet /path/to/ddsp_guitar_synth_10s/data
+bash synthesizer/ddsp-guitar-synth/run_prepare_unified.sh francoisleduc 10 /path/to/FrancoisLeducGuitarDataset /path/to/ddsp_guitar_synth_10s/data
+bash synthesizer/ddsp-guitar-synth/run_prepare_unified.sh gaps 10 /path/to/GAPS /path/to/ddsp_guitar_synth_10s/data
 bash synthesizer/ddsp-guitar-synth/run_training_unified.sh 10 /path/to/ddsp_guitar_synth_10s/data /path/to/ddsp_guitar_synth_10s/output
 ```
 

@@ -1,63 +1,92 @@
-# Route I direct inversion + shared evaluation
+# Route I direct inversion
 
-This folder contains the Route I baseline and the shared evaluation utilities used by Route I / II / III / IV.
+This folder keeps the Route I / II implementations, the flat-velocity baseline, and the shared evaluation backend.
 
 ## Files
 
-- `note_loudness.py`
-  - Extracts the two note-wise loudness parameters used in the paper draft:
-    - harmonic-energy-after-onset
-    - onset spectral flux
-- `midi_velocity_mapping.py`
-  - Dataset-statistics MIDI velocity mapping
-  - Converts note-wise loudness features into percentile-like scores and then into MIDI velocities
-- `midi_tools.py`
-  - MIDI note loading, velocity replacement, flat-velocity baseline, note-wise velocity MAE alignment
-- `route1.py`
-  - Route I batch runner
-  - Creates both direct-inversion and flat-velocity predicted MIDIs plus manifests
+- `route1_infer.py`
+  - Route I inference implementation
+  - note-wise loudness extraction
+  - dataset-statistics velocity mapping
+  - same-structure MIDI export
+- `flat_infer.py`
+  - fixed-velocity MIDI export
+  - dataset scan matching Route I CLI behavior
+- `route2_infer.py`
+  - Route II model inference
+  - aligned score-note velocity backfill to prediction MIDI
+- `route1_evaluate.py`
+  - Route I evaluation entrypoint
+- `route2_evaluate.py`
+  - Route II evaluation entrypoint
+- `flat_evaluate.py`
+  - flat-velocity evaluation entrypoint
+- `eval_runner.py`
+  - shared evaluation runner for Route I / flat baselines
+- `common.py`
+  - shared config/path/JSON helpers
+  - shared PrettyMIDI note sorting and velocity rewriting
 - `eval_framework.py`
-  - Shared rendering + evaluation backend
-  - Computes:
-    - velocity MAE
-    - BSSL Pearson / MAE / cosine / Spearman
-    - BSTL Pearson / MAE / cosine / Spearman
-  - Supports both:
-    - `SoundFont(gt note, pred velocity)` vs real audio
-    - `SoundFont(gt note, pred velocity)` vs `SoundFont(gt note, gt velocity)`
+  - shared rendering and evaluation backend
+  - reusable by Route II / III / IV
 
-## CLI examples
+## Public CLI entrypoints
 
-### Route I dataset inference
+Run these from `score_hpt/`:
 
 ```bash
-cd score_hpt
-python pytorch/direct_invension/route1.py dataset \
-  --dataset_type smd \
-  --dataset_dir /path/to/SMD \
-  --stats_json ../data_analysis/stats/midi_sampler/SMD_sampler.json \
-  --out_dir ./outputs/route1_smd
+python pytorch/direct_invension/route1_infer.py dataset.test_set=smd
+python pytorch/direct_invension/route1_evaluate.py dataset.test_set=smd route1.eval.instrument_path=/path/to/soundfont.sf2
+python pytorch/direct_invension/route2_infer.py dataset.test_set=smd model.pretrained_checkpoint=/path/to/ckpt.pth
+python pytorch/direct_invension/route2_evaluate.py dataset.test_set=smd route2.eval.instrument_path=/path/to/soundfont.sf2
+python pytorch/direct_invension/flat_infer.py dataset.test_set=smd flat.infer.flat_velocity=64
+python pytorch/direct_invension/flat_evaluate.py dataset.test_set=smd flat.eval.instrument_path=/path/to/soundfont.sf2
 ```
 
-### Evaluate an existing manifest
+## Config source
+
+Defaults come from:
+
+```text
+pytorch/config/config.yaml
+```
+
+Important Route I defaults:
+
+- `feature.frames_per_second=100`
+- `proxy.supervision.hop_size=221`
+- `route1.infer.*`
+- `route1.eval.*`
+
+Important flat defaults:
+
+- `flat.infer.*`
+- `flat.eval.*`
+
+Important Route II defaults:
+
+- `route2.infer.*`
+- `route2.eval.*`
+
+## Folder-mode evaluation
+
+Use folder mode when GT MIDI and/or reference audio do not follow the built-in dataset layout.
 
 ```bash
-cd score_hpt
-python pytorch/direct_invension/eval_framework.py manifest \
-  --manifest ./outputs/route1_smd/route1_direct_manifest.json \
-  --instrument /path/to/soundfont.sf2 \
-  --out_dir ./outputs/route1_smd/eval
+python pytorch/direct_invension/route1_evaluate.py \
+  dataset.test_set=maestro \
+  route1.eval.instrument_path=/path/to/soundfont.sf2 \
+  route1.eval.manifest_mode=folder \
+  route1.eval.audio_reference_mode=folder \
+  route1.eval.gt_midi_dir=/path/to/gt_midis \
+  route1.eval.reference_audio_dir=/path/to/reference_audio
 ```
 
-### Build a manifest from a predicted MIDI folder and evaluate it
+## Audio reference modes
 
-```bash
-cd score_hpt
-python pytorch/direct_invension/eval_framework.py dataset \
-  --dataset_type smd \
-  --dataset_dir /path/to/SMD \
-  --pred_midi_dir /path/to/pred_midis \
-  --label route2_veloest \
-  --instrument /path/to/soundfont.sf2 \
-  --out_dir ./outputs/route2_eval
-```
+- `route1.eval.audio_reference_mode=dataset`
+  - compare against dataset real audio
+- `route1.eval.audio_reference_mode=folder`
+  - compare against a matched external audio folder
+- `route1.eval.audio_reference_mode=none`
+  - skip real-audio reference and keep only synth-reference metrics

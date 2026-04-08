@@ -933,7 +933,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--midi-format",
         default="maestro",
-        choices=["maestro", "hpt", "smd", "maps"],
+        choices=["maestro", "hpt", "smd", "maps", "francoisleduc", "gaps"],
         help="Layout hint for parsing MIDI files when reading standalone pairs.",
     )
     parser.add_argument(

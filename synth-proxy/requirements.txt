@@ -1,28 +1,15 @@
---extra-index-url https://download.pytorch.org/whl/cu118 ; platform_system == "Windows", platform_system == "Linux"
+--extra-index-url https://download.pytorch.org/whl/cu118 ; platform_system == "Windows" or platform_system == "Linux"
 -e .
-auraloss[all]
-dawdreamer==0.8.0
 hydra-core==1.3.2
 hydra-colorlog==1.2.0
-lightning==2.2.3 
+lightning==2.2.3
 matplotlib==3.8.4
-numpy==1.26.4; platform_system == "Darwin" # for torch
-optuna==3.5.0
+mido==1.3.3
+numpy==1.26.4
 omegaconf==2.3.0
-pandas==2.2.2
-pedalboard==0.9.10
-python-dotenv==0.21.0
+pyfluidsynth==1.3.3
 pytest==7.4.0
-rich==13.3.5
-timm==0.9.10 # 0.4.12 might be required for passt 
-tqdm==4.65.0
+scipy==1.13.0
 torch==2.2.1
-torchaudio==2.2.1
-torchopenl3==1.0.1
-umap-learn==0.5.6
+tqdm==4.65.0
 wandb==0.16.5
-# sfproxy extras
-mido>=1.3.2
-pyfluidsynth>=1.3.3
-matplotlib>=3.7.0
-

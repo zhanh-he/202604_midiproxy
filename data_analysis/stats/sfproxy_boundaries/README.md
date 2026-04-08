@@ -4,7 +4,7 @@ new SFProxy samplers.
 Generate them with:
 
 ```bash
-python synth-proxy/src/sfproxy/tools/discover_velocity_boundaries.py \
+python synth-proxy/src/tools/discover_velocity_boundaries.py \
   --sf2_path /path/to/instrument.sf2 \
   --instrument_name salamander_piano \
   --bank 0 \

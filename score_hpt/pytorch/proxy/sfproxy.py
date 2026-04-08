@@ -70,8 +70,8 @@ class SFProxyObjective:
         if str(project_root / 'src') not in sys.path:
             sys.path.insert(0, str(project_root / 'src'))
 
-        from sfproxy.features.dynamics import DynamicsFeatureConfig, extract_note_features_padded
-        from sfproxy.models.note_proxy_tfm import NoteProxyTransformer
+        from features.dynamics import DynamicsFeatureConfig, extract_note_features_padded
+        from models.note_proxy_tfm import NoteProxyTransformer
 
         self.extract_note_features_padded = extract_note_features_padded
         feature_cfg = getattr(cfg.proxy.sfproxy, 'feature', None)

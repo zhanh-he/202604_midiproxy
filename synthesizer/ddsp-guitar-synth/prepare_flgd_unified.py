@@ -22,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Prepare FrancoisLeduc DDSP-Guitar-Synth datasets under the unified repo contract."
     )
-    parser.add_argument("--francoisledu_path", type=Path, required=True)
+    parser.add_argument("--francoisleduc_path", type=Path, required=True)
     parser.add_argument("--output_dir", type=Path, required=True)
     parser.add_argument("--sample_rate", type=int, default=22050)
     parser.add_argument("--frame_rate", type=float, default=100.0)
@@ -278,7 +278,7 @@ def save_npz(path: Path, data: dict[str, np.ndarray]) -> None:
 
 def main() -> None:
     args = parse_args()
-    root = args.francoisledu_path.expanduser().resolve()
+    root = args.francoisleduc_path.expanduser().resolve()
     rows = read_metadata(root / "metadata.csv")
     train_rows = [row for row in rows if normalize_split(row["split"]) == "train"]
     val_rows = [row for row in rows if normalize_split(row["split"]) == "validation"]
@@ -310,7 +310,7 @@ def main() -> None:
 
     meta = {
         "dataset": "FrancoisLeducGuitarDataset",
-        "francoisledu_path": str(root),
+        "francoisleduc_path": str(root),
         "sample_rate": int(args.sample_rate),
         "frame_rate": float(args.frame_rate),
         "segment_seconds": float(args.segment_seconds),

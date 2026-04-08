@@ -69,10 +69,22 @@ def render_midi_with_sf2_fluidsynth(
         pass
 
     sfid = synth.sfload(str(sf2_path))
+    preset_exists_cache: Dict[int, bool] = {}
+    ignored_program_changes: list[Dict[str, int]] = []
+
+    def preset_exists(program: int) -> bool:
+        key = int(program)
+        if key not in preset_exists_cache:
+            try:
+                preset_exists_cache[key] = synth.sfpreset_name(sfid, 0, key) is not None
+            except Exception:
+                preset_exists_cache[key] = False
+        return preset_exists_cache[key]
 
     for ch in range(16):
         try:
-            synth.program_select(ch, sfid, 0, 0)
+            if preset_exists(0):
+                synth.program_select(ch, sfid, 0, 0)
         except Exception:
             pass
 
@@ -113,7 +125,14 @@ def render_midi_with_sf2_fluidsynth(
                 elif t == "note_off":
                     synth.noteoff(ch, int(msg.note))
                 elif t == "program_change":
-                    synth.program_select(ch, sfid, 0, int(msg.program))
+                    program = int(msg.program)
+                    if preset_exists(program):
+                        synth.program_select(ch, sfid, 0, program)
+                    else:
+                        ignored_program_changes.append({
+                            "channel": int(ch),
+                            "program": int(program),
+                        })
                 elif t == "control_change":
                     synth.cc(ch, int(msg.control), int(msg.value))
                 elif t == "pitchwheel":
@@ -141,5 +160,6 @@ def render_midi_with_sf2_fluidsynth(
     return {
         "backend": "fluidsynth",
         "info": info.__dict__,
+        "ignored_program_changes": ignored_program_changes,
         "wav_path": str(wav_path),
     }

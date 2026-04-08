@@ -18,6 +18,7 @@ from data_generator import (
     SMD_Dataset,
     MAPS_Dataset,
     FrancoisLeduc_Dataset,
+    GAPS_Dataset,
     Sampler,
     EvalSampler,
     collate_fn,
@@ -43,7 +44,7 @@ DATASET_CLASSES = {
     "smd": SMD_Dataset,
     "maps": MAPS_Dataset,
     "francoisleduc": FrancoisLeduc_Dataset,
-    "francoisledu": FrancoisLeduc_Dataset,
+    "gaps": GAPS_Dataset,
 }
 
 

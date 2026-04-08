@@ -142,23 +142,33 @@ def _normalize_dataset_split(raw_split):
     return mapping[split]
 
 
-def _normalize_francoisleduc_flag(flag):
-    normalized = str(flag).strip().lower()
-    if normalized in {"francoisleduc", "francoisledu"}:
-        return "francoisleduc"
-    return normalized
+def _normalize_gaps_split(raw_split):
+    split = str(raw_split or "").strip().lower()
+    if split in {"", "valid", "validate", "validation", "val"}:
+        # The published GAPS split merge leaves unmatched rows blank.
+        # We treat those rows as validation so train / validation / test remain usable.
+        return "validation"
+    if split in {"train", "test"}:
+        return split
+    raise ValueError(f"Unsupported GAPS split '{raw_split}'.")
+
+
+def _normalize_aligned_dataset_name(flag):
+    return str(flag).strip().lower()
+
+
+def _resolve_aligned_hdf5_dir(workspace, sample_rate, dataset_name):
+    sr_tag = f"sr{int(sample_rate)}"
+    hdf5_root = os.path.join(workspace, "hdf5s")
+    return os.path.join(hdf5_root, f"{dataset_name}_{sr_tag}")
 
 
 def _resolve_francoisleduc_hdf5_dir(workspace, sample_rate):
-    sr_tag = f"sr{int(sample_rate)}"
-    hdf5_root = os.path.join(workspace, "hdf5s")
-    canonical = os.path.join(hdf5_root, f"francoisleduc_{sr_tag}")
-    legacy = os.path.join(hdf5_root, f"francoisledu_{sr_tag}")
-    if os.path.isdir(canonical):
-        return canonical
-    if os.path.isdir(legacy):
-        return legacy
-    return canonical
+    return _resolve_aligned_hdf5_dir(workspace, sample_rate, "francoisleduc")
+
+
+def _resolve_gaps_hdf5_dir(workspace, sample_rate):
+    return _resolve_aligned_hdf5_dir(workspace, sample_rate, "gaps")
 
 
 def _read_francoisleduc_metadata(metadata_path):
@@ -185,8 +195,23 @@ def _read_francoisleduc_metadata(metadata_path):
     return rows
 
 
-_read_francoisledu_metadata = _read_francoisleduc_metadata
+def _read_gaps_metadata(metadata_path):
+    with open(metadata_path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
 
+    required_columns = {
+        "id",
+        "split",
+        "midi_path",
+        "audio_path",
+    }
+    if not rows:
+        raise ValueError(f"No rows found in metadata file: {metadata_path}")
+    missing_columns = required_columns.difference(rows[0].keys())
+    if missing_columns:
+        raise ValueError(f"GAPS metadata is missing columns: {sorted(missing_columns)}")
+    return rows
 
 def _fit_audio_for_hdf5(audio, source_path):
     audio = np.asarray(audio, dtype=np.float32)
@@ -319,14 +344,15 @@ class SMD_Dataset(object):
         )
 
 
-class FrancoisLeduc_Dataset(object):
-    def __init__(self, cfg):
-        """Dataset class for aligned audio+MIDI FrancoisLeduc HDF5 files."""
+class _AlignedMidiHdf5Dataset(object):
+    def __init__(self, cfg, dataset_name):
         self.cfg = cfg
+        self.dataset_name = str(dataset_name)
         self.random_state = np.random.RandomState(cfg.exp.random_seed)
-        self.hdf5s_dir = _resolve_francoisleduc_hdf5_dir(
+        self.hdf5s_dir = _resolve_aligned_hdf5_dir(
             cfg.exp.workspace,
             cfg.feature.sample_rate,
+            self.dataset_name,
         )
         self.segment_samples = int(cfg.feature.sample_rate * cfg.feature.segment_seconds)
         self.target_processor = TargetProcessor(cfg.feature.segment_seconds, cfg)
@@ -344,7 +370,16 @@ class FrancoisLeduc_Dataset(object):
         )
 
 
-FrancoisLedu_Dataset = FrancoisLeduc_Dataset
+class FrancoisLeduc_Dataset(_AlignedMidiHdf5Dataset):
+    def __init__(self, cfg):
+        """Dataset class for aligned audio+MIDI FrancoisLeduc HDF5 files."""
+        super().__init__(cfg, dataset_name="francoisleduc")
+
+
+class GAPS_Dataset(_AlignedMidiHdf5Dataset):
+    def __init__(self, cfg):
+        """Dataset class for aligned audio+MIDI GAPS HDF5 files."""
+        super().__init__(cfg, dataset_name="gaps")
 
 
 def pack_maestro_dataset_to_hdf5(cfg):
@@ -532,11 +567,7 @@ def pack_smd_dataset_to_hdf5(cfg):
 
 
 def pack_francoisleduc_dataset_to_hdf5(cfg):
-    dataset_dir_value = getattr(
-        cfg.dataset,
-        "francoisleduc_dir",
-        getattr(cfg.dataset, "francoisledu_dir"),
-    )
+    dataset_dir_value = getattr(cfg.dataset, "francoisleduc_dir")
     dataset_dir = Path(dataset_dir_value).expanduser().resolve()
     metadata_path = dataset_dir / "metadata.csv"
     rows = _read_francoisleduc_metadata(metadata_path)
@@ -598,8 +629,74 @@ def pack_francoisleduc_dataset_to_hdf5(cfg):
     logging.info(f"Time taken: {time.time() - feature_time:.3f} s")
 
 
-pack_francoisledu_dataset_to_hdf5 = pack_francoisleduc_dataset_to_hdf5
+def pack_gaps_dataset_to_hdf5(cfg):
+    dataset_dir_value = getattr(cfg.dataset, "gaps_dir")
+    dataset_dir = Path(dataset_dir_value).expanduser().resolve()
+    metadata_path = dataset_dir / "gaps_metadata_with_splits.csv"
+    rows = _read_gaps_metadata(metadata_path)
 
+    dataset_name = f"gaps_{_sr_tag(cfg)}"
+    waveform_hdf5s_dir = os.path.join(cfg.exp.workspace, "hdf5s", dataset_name)
+    logs_dir = os.path.join(cfg.exp.workspace, "logs", f"{get_filename(__file__)}_{dataset_name}")
+    create_logging(logs_dir, filemode="w")
+    logging.info(f"Packing GAPS dataset: {dataset_dir}")
+    logging.info(f"Using metadata: {metadata_path}")
+
+    feature_time = time.time()
+    count = 0
+
+    for row in tqdm(rows, desc="GAPS", unit="track"):
+        split = _normalize_gaps_split(row.get("split"))
+        audio_path = dataset_dir / row["audio_path"]
+        midi_path = dataset_dir / row["midi_path"]
+        stem = str(row.get("id") or Path(row["audio_path"]).stem)
+
+        if not audio_path.is_file():
+            raise FileNotFoundError(f"Missing GAPS audio file: {audio_path}")
+        if not midi_path.is_file():
+            raise FileNotFoundError(f"Missing GAPS MIDI file: {midi_path}")
+
+        audio, _ = librosa.core.load(str(audio_path), sr=cfg.feature.sample_rate, mono=True)
+        audio = _fit_audio_for_hdf5(audio, audio_path)
+        midi_dict = read_midi(str(midi_path), "gaps")
+        duration = float(librosa.get_duration(y=audio, sr=cfg.feature.sample_rate))
+
+        packed_hdf5_path = os.path.join(waveform_hdf5s_dir, f"{stem}.h5")
+        create_folder(os.path.dirname(packed_hdf5_path))
+
+        with h5py.File(packed_hdf5_path, "w") as hf:
+            hf.attrs.create("split", data=split.encode(), dtype="S20")
+            hf.attrs.create("duration", data=np.float32(duration))
+            hf.attrs.create("id", data=str(stem).encode(), dtype="S64")
+            hf.attrs.create("audio_filename", data=row["audio_path"].encode(), dtype="S200")
+            hf.attrs.create("midi_filename", data=row["midi_path"].encode(), dtype="S200")
+            if row.get("title"):
+                hf.attrs.create("title", data=row["title"].encode(), dtype="S300")
+            if row.get("composer_name_normalized"):
+                hf.attrs.create(
+                    "composer_name_normalized",
+                    data=row["composer_name_normalized"].encode(),
+                    dtype="S200",
+                )
+            if row.get("performer_name"):
+                hf.attrs.create("performer_name", data=row["performer_name"].encode(), dtype="S200")
+            hf.create_dataset(
+                name="midi_event",
+                data=[e.encode() for e in midi_dict["midi_event"]],
+                dtype="S100",
+            )
+            hf.create_dataset(
+                name="midi_event_time",
+                data=midi_dict["midi_event_time"],
+                dtype=np.float32,
+            )
+            hf.create_dataset("waveform", data=float32_to_int16(audio), dtype=np.int16)
+
+        count += 1
+
+    logging.info(f"Write HDF5 to {waveform_hdf5s_dir}")
+    logging.info(f"Total GAPS files processed: {count}")
+    logging.info(f"Time taken: {time.time() - feature_time:.3f} s")
 
 class Augmentor(object):
     def __init__(self, cfg):
@@ -677,17 +774,25 @@ class Sampler(object):
         self.is_eval = is_eval
         # Point test/eval to the same workspace root used by packing
         sr_tag = f"sr{int(cfg.feature.sample_rate)}"
-        dataset_name = _normalize_francoisleduc_flag(is_eval if split == "test" else cfg.dataset.train_set)
+        dataset_name = _normalize_aligned_dataset_name(is_eval if split == "test" else cfg.dataset.train_set)
         if split == "test":
             # Evaluate against a specific dataset name passed via is_eval (e.g., "maestro"|"smd"|"maps")
-            if dataset_name == "francoisleduc":
-                self.hdf5s_dir = _resolve_francoisleduc_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate)
+            if dataset_name in {"francoisleduc", "gaps"}:
+                self.hdf5s_dir = _resolve_aligned_hdf5_dir(
+                    cfg.exp.workspace,
+                    cfg.feature.sample_rate,
+                    dataset_name,
+                )
             else:
                 self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"{dataset_name}_{sr_tag}")
         else:
             # Train/validation use configured train_set, suffixed by sample rate
-            if dataset_name == "francoisleduc":
-                self.hdf5s_dir = _resolve_francoisleduc_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate)
+            if dataset_name in {"francoisleduc", "gaps"}:
+                self.hdf5s_dir = _resolve_aligned_hdf5_dir(
+                    cfg.exp.workspace,
+                    cfg.feature.sample_rate,
+                    dataset_name,
+                )
             else:
                 self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"{dataset_name}_{sr_tag}")
         self.segment_seconds = cfg.feature.segment_seconds
@@ -723,7 +828,7 @@ class Sampler(object):
                         file_id = [audio_name]
                     elif self.dataset_type == "maps":
                         file_id = [audio_name]
-                    elif self.dataset_type == "francoisleduc":
+                    elif self.dataset_type in {"francoisleduc", "gaps"}:
                         file_id = [audio_name]
                     else:
                         raise KeyError(f"Unsupported dataset type in sampler: {self.dataset_type}")
@@ -847,7 +952,7 @@ if __name__ == "__main__":
     subparsers.add_parser("pack_maps_dataset_to_hdf5", help="Pack MAPS dataset to HDF5")
     subparsers.add_parser("pack_smd_dataset_to_hdf5", help="Pack SMD dataset to HDF5")
     subparsers.add_parser("pack_francoisleduc_dataset_to_hdf5", help="Pack FrancoisLeduc dataset to HDF5")
-    subparsers.add_parser("pack_francoisledu_dataset_to_hdf5", help="Pack FrancoisLeduc dataset to HDF5 (legacy alias)")
+    subparsers.add_parser("pack_gaps_dataset_to_hdf5", help="Pack GAPS dataset to HDF5")
 
     args, hydra_overrides = parser.parse_known_args()
 
@@ -859,7 +964,7 @@ if __name__ == "__main__":
         "pack_maps_dataset_to_hdf5": pack_maps_dataset_to_hdf5,
         "pack_smd_dataset_to_hdf5": pack_smd_dataset_to_hdf5,
         "pack_francoisleduc_dataset_to_hdf5": pack_francoisleduc_dataset_to_hdf5,
-        "pack_francoisledu_dataset_to_hdf5": pack_francoisledu_dataset_to_hdf5,
+        "pack_gaps_dataset_to_hdf5": pack_gaps_dataset_to_hdf5,
     }
 
     if args.mode in mode_to_function:

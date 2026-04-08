@@ -159,9 +159,9 @@ python train_midi_synth_unified.py \
 ### Prepare
 
 ```bash
-bash run_prepare_unified.sh 10 /path/to/GuitarSet /path/to/ddsp_guitar_synth_10s/data
-bash run_prepare_unified.sh 5 /path/to/GuitarSet /path/to/ddsp_guitar_synth_5s/data
-bash run_prepare_unified.sh 2 /path/to/GuitarSet /path/to/ddsp_guitar_synth_2s/data
+bash run_prepare_unified.sh francoisleduc 10 /path/to/FrancoisLeducGuitarDataset /path/to/ddsp_guitar_synth_10s/data
+bash run_prepare_unified.sh gaps 5 /path/to/GAPS /path/to/ddsp_guitar_synth_5s/data
+bash run_prepare_unified.sh gaps 2 /path/to/GAPS /path/to/ddsp_guitar_synth_2s/data
 ```
 
 ### Train

@@ -1,7 +1,0 @@
-name: ${task_name} # name of the run
-dir: ${paths.output_dir}
-mode: "online"
-id: null
-anonymous: null
-project: "eval_synth-proxy"
-tags: ${tags}

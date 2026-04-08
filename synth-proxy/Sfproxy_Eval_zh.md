@@ -54,7 +54,7 @@ F_gt     = FeatureExtractor(audio_gt, notes)
 ```
 
 在这个仓库里，feature extractor 不是 proxy 模型本身，而是
-[src/sfproxy/features/dynamics.py](/media/mengh/SharedData/zhanh/synth-proxy_v1/src/sfproxy/features/dynamics.py)
+[src/features/dynamics.py](/media/mengh/SharedData/zhanh/202604_midiproxy/synth-proxy/src/features/dynamics.py)
 里的手工定义特征。目前主要包括：
 
 - harmonic energy

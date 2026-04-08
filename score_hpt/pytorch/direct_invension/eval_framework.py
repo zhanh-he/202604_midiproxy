@@ -1,23 +1,145 @@
 from __future__ import annotations
 
-if __package__ in {None, ""}:
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from direct_invension.common import dump_json, ensure_repo_imports, load_json, repo_root, slugify
-    from direct_invension.midi_tools import align_note_velocities
-else:
-    from .common import dump_json, ensure_repo_imports, load_json, repo_root, slugify
-    from .midi_tools import align_note_velocities
-
 from dataclasses import dataclass
 import argparse
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from direct_invension.common import (
+    dump_json,
+    ensure_repo_imports,
+    extract_sorted_notes,
+    load_json,
+    slugify,
+    SortedMidiNote,
+)
+
+
+@dataclass(frozen=True)
+class VelocityAlignmentResult:
+    num_gt_notes: int
+    num_pred_notes: int
+    num_matched_notes: int
+    mae: float
+    matched_in_exact_order: bool
+    unmatched_gt: int
+    unmatched_pred: int
+
+def _direct_order_match(
+    gt_notes: Sequence[SortedMidiNote],
+    pred_notes: Sequence[SortedMidiNote],
+    *,
+    onset_tolerance_s: float,
+    offset_tolerance_s: float,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    if len(gt_notes) != len(pred_notes):
+        return None
+    gt_vel = np.zeros(len(gt_notes), dtype=np.float64)
+    pred_vel = np.zeros(len(pred_notes), dtype=np.float64)
+    for idx, (gt, pred) in enumerate(zip(gt_notes, pred_notes)):
+        if int(gt.pitch) != int(pred.pitch):
+            return None
+        if abs(float(gt.onset) - float(pred.onset)) > onset_tolerance_s:
+            return None
+        if abs((float(gt.offset) - float(gt.onset)) - (float(pred.offset) - float(pred.onset))) > offset_tolerance_s:
+            return None
+        gt_vel[idx] = float(gt.velocity)
+        pred_vel[idx] = float(pred.velocity)
+    return gt_vel, pred_vel
+
+
+def _greedy_pitch_onset_match(
+    gt_notes: Sequence[SortedMidiNote],
+    pred_notes: Sequence[SortedMidiNote],
+    *,
+    onset_tolerance_s: float,
+    offset_tolerance_s: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    pred_by_pitch: Dict[int, List[int]] = {}
+    for idx, note in enumerate(pred_notes):
+        pred_by_pitch.setdefault(int(note.pitch), []).append(idx)
+
+    used = np.zeros(len(pred_notes), dtype=bool)
+    gt_vel: List[float] = []
+    pred_vel: List[float] = []
+    for gt in gt_notes:
+        candidates = pred_by_pitch.get(int(gt.pitch), [])
+        best_idx = None
+        best_score = None
+        gt_dur = float(gt.offset) - float(gt.onset)
+        for idx in candidates:
+            if used[idx]:
+                continue
+            pred = pred_notes[idx]
+            onset_diff = abs(float(gt.onset) - float(pred.onset))
+            if onset_diff > onset_tolerance_s:
+                continue
+            dur_diff = abs(gt_dur - (float(pred.offset) - float(pred.onset)))
+            if dur_diff > offset_tolerance_s:
+                continue
+            score = (onset_diff, dur_diff, abs(float(gt.offset) - float(pred.offset)))
+            if best_score is None or score < best_score:
+                best_score = score
+                best_idx = idx
+        if best_idx is None:
+            continue
+        used[best_idx] = True
+        gt_vel.append(float(gt.velocity))
+        pred_vel.append(float(pred_notes[best_idx].velocity))
+    return np.asarray(gt_vel, dtype=np.float64), np.asarray(pred_vel, dtype=np.float64)
+
+
+def align_note_velocities(
+    gt_midi: str | Path,
+    pred_midi: str | Path,
+    *,
+    onset_tolerance_s: float = 0.03,
+    offset_tolerance_s: float = 0.08,
+) -> VelocityAlignmentResult:
+    gt_notes = extract_sorted_notes(gt_midi)
+    pred_notes = extract_sorted_notes(pred_midi)
+
+    direct = _direct_order_match(
+        gt_notes,
+        pred_notes,
+        onset_tolerance_s=onset_tolerance_s,
+        offset_tolerance_s=offset_tolerance_s,
+    )
+    matched_in_exact_order = direct is not None
+    if direct is None:
+        gt_vel, pred_vel = _greedy_pitch_onset_match(
+            gt_notes,
+            pred_notes,
+            onset_tolerance_s=onset_tolerance_s,
+            offset_tolerance_s=offset_tolerance_s,
+        )
+    else:
+        gt_vel, pred_vel = direct
+
+    if gt_vel.size == 0 or pred_vel.size == 0:
+        matched = 0
+        mae = float("nan")
+    else:
+        matched = int(min(gt_vel.size, pred_vel.size))
+        mae = float(np.mean(np.abs(gt_vel[:matched] - pred_vel[:matched])))
+
+    return VelocityAlignmentResult(
+        num_gt_notes=int(len(gt_notes)),
+        num_pred_notes=int(len(pred_notes)),
+        num_matched_notes=int(matched),
+        mae=mae,
+        matched_in_exact_order=matched_in_exact_order,
+        unmatched_gt=int(max(0, len(gt_notes) - matched)),
+        unmatched_pred=int(max(0, len(pred_notes) - matched)),
+    )
 
 
 @dataclass(frozen=True)
@@ -151,13 +273,21 @@ def _extract_pair_metrics(eval_payload: Mapping[str, Any]) -> Dict[str, float]:
         or {}
     )
     for src_name, src_payload in (("bssl", bssl_raw), ("bstl", bstl_raw)):
-        for metric in _METRIC_FIELD_NAMES:
-            if metric in src_payload:
-                out[f"{src_name}_{metric}"] = float(src_payload[metric])
+        metric_aliases = {
+            "pearson_correlation": "pearson_correlation",
+            "mean_absolute_error": "mean_absolute_error",
+            "cosine_similarity": "cosine_sim",
+            "spearman_correlation": "spearman_correlation",
+        }
+        for output_metric, source_metric in metric_aliases.items():
+            if source_metric in src_payload:
+                out[f"{src_name}_{output_metric}"] = float(src_payload[source_metric])
     return out
 
 
 _RE_SUFFIX = re.compile(r"(?:_pred|_gt|_direct|_route\d+|\.pred|\.gt|\.direct|\.flat\d+)$", re.IGNORECASE)
+_AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac")
+_MIDI_EXTENSIONS = (".mid", ".midi")
 
 
 def _normalize_stem(stem: str) -> str:
@@ -169,11 +299,14 @@ def _normalize_stem(stem: str) -> str:
     return text
 
 
-def _index_prediction_midis(pred_midi_dir: Path) -> Dict[str, List[Path]]:
+def _index_paths_with_suffixes(base_dir: Path, suffixes: Sequence[str]) -> Dict[str, List[Path]]:
+    suffix_set = {str(s).lower() for s in suffixes}
     index: Dict[str, List[Path]] = {}
-    for path in sorted(pred_midi_dir.rglob("*.mid")):
+    for path in sorted(base_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in suffix_set:
+            continue
         resolved = path.resolve()
-        rel_no_suffix = str(path.relative_to(pred_midi_dir).with_suffix(""))
+        rel_no_suffix = str(path.relative_to(base_dir).with_suffix(""))
         for key in {
             rel_no_suffix,
             _normalize_stem(rel_no_suffix),
@@ -182,6 +315,31 @@ def _index_prediction_midis(pred_midi_dir: Path) -> Dict[str, List[Path]]:
         }:
             index.setdefault(key, []).append(resolved)
     return index
+
+
+def _index_prediction_midis(pred_midi_dir: Path) -> Dict[str, List[Path]]:
+    return _index_paths_with_suffixes(pred_midi_dir, _MIDI_EXTENSIONS)
+
+
+def _path_key_candidates(base_dir: Path, path: Path) -> List[str]:
+    try:
+        rel_no_suffix = str(path.relative_to(base_dir).with_suffix(""))
+    except Exception:
+        rel_no_suffix = path.stem
+    return [
+        rel_no_suffix,
+        _normalize_stem(rel_no_suffix),
+        path.stem,
+        _normalize_stem(path.stem),
+    ]
+
+
+def _find_first_index_match(index: Mapping[str, Sequence[Path]], key_candidates: Sequence[str]) -> Optional[Path]:
+    for key in key_candidates:
+        matches = index.get(key) or []
+        if matches:
+            return Path(matches[0]).resolve()
+    return None
 
 
 def build_dataset_prediction_manifest(
@@ -205,32 +363,23 @@ def build_dataset_prediction_manifest(
 
     items: List[Dict[str, Any]] = []
     missing: List[str] = []
-    for gt_midi in midi_files:
+    for gt_midi in tqdm(
+        midi_files,
+        desc=f"Build manifest [{dataset_type}]",
+        unit="file",
+        dynamic_ncols=True,
+    ):
         gt_midi = Path(gt_midi).resolve()
-        try:
-            rel_no_suffix = str(gt_midi.relative_to(dataset_dir).with_suffix(""))
-        except Exception:
-            rel_no_suffix = gt_midi.stem
-        stem_candidates = [
-            rel_no_suffix,
-            _normalize_stem(rel_no_suffix),
-            gt_midi.stem,
-            _normalize_stem(gt_midi.stem),
-        ]
-        pred_path = None
-        for stem in stem_candidates:
-            matches = pred_index.get(stem) or []
-            if matches:
-                pred_path = matches[0]
-                break
-        if pred_path is None:
-            missing.append(str(gt_midi))
-            continue
-        real_audio = resolve_real_audio(dataset_type, dataset_dir, gt_midi, maestro_audio_map)
         try:
             key = str(gt_midi.relative_to(dataset_dir).with_suffix(""))
         except Exception:
             key = gt_midi.stem
+        stem_candidates = _path_key_candidates(dataset_dir, gt_midi)
+        pred_path = _find_first_index_match(pred_index, stem_candidates)
+        if pred_path is None:
+            missing.append(str(gt_midi))
+            continue
+        real_audio = resolve_real_audio(dataset_type, dataset_dir, gt_midi, maestro_audio_map)
         items.append(
             {
                 "key": key,
@@ -255,6 +404,116 @@ def build_dataset_prediction_manifest(
     if manifest_out is not None:
         dump_json(manifest_out, manifest)
     return manifest
+
+
+def build_folder_prediction_manifest(
+    *,
+    gt_midi_dir: str | Path,
+    pred_midi_dir: str | Path,
+    label: str,
+    reference_audio_dir: Optional[str | Path] = None,
+    manifest_out: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Create a manifest by matching predicted MIDIs against a GT MIDI folder."""
+    gt_midi_dir = Path(gt_midi_dir).resolve()
+    pred_midi_dir = Path(pred_midi_dir).resolve()
+    reference_audio_path = Path(reference_audio_dir).resolve() if reference_audio_dir is not None else None
+
+    gt_midis: List[Path] = []
+    for suffix in _MIDI_EXTENSIONS:
+        gt_midis.extend(sorted(gt_midi_dir.rglob(f"*{suffix}")))
+    # Deduplicate in case both .mid and .midi globs overlap unexpectedly.
+    gt_midis = sorted({p.resolve() for p in gt_midis})
+
+    pred_index = _index_prediction_midis(pred_midi_dir)
+    audio_index = (
+        _index_paths_with_suffixes(reference_audio_path, _AUDIO_EXTENSIONS)
+        if reference_audio_path is not None
+        else {}
+    )
+
+    items: List[Dict[str, Any]] = []
+    missing_gt_midis: List[str] = []
+    missing_reference_audio: List[str] = []
+    for gt_midi in tqdm(
+        gt_midis,
+        desc="Build folder manifest",
+        unit="file",
+        dynamic_ncols=True,
+    ):
+        key_candidates = _path_key_candidates(gt_midi_dir, gt_midi)
+        pred_path = _find_first_index_match(pred_index, key_candidates)
+        if pred_path is None:
+            missing_gt_midis.append(str(gt_midi))
+            continue
+
+        item: Dict[str, Any] = {
+            "key": key_candidates[0],
+            "label": label,
+            "gt_midi": str(gt_midi),
+            "pred_midi": str(pred_path),
+        }
+        if reference_audio_path is not None:
+            reference_audio = _find_first_index_match(audio_index, key_candidates)
+            if reference_audio is not None:
+                item["real_audio"] = str(reference_audio)
+            else:
+                missing_reference_audio.append(str(gt_midi))
+        items.append(item)
+
+    manifest = {
+        "format_version": 1,
+        "label": label,
+        "gt_midi_dir": str(gt_midi_dir),
+        "pred_midi_dir": str(pred_midi_dir),
+        "reference_audio_dir": str(reference_audio_path) if reference_audio_path is not None else None,
+        "items": items,
+        "missing_gt_midis": missing_gt_midis,
+        "missing_reference_audio": missing_reference_audio,
+    }
+    if manifest_out is not None:
+        dump_json(manifest_out, manifest)
+    return manifest
+
+
+def attach_reference_audio_from_folder(
+    manifest: str | Path | Mapping[str, Any],
+    *,
+    gt_root: str | Path,
+    reference_audio_dir: str | Path,
+    manifest_out: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Attach audio references from a folder to an existing manifest."""
+    payload = _load_manifest(manifest)
+    gt_root = Path(gt_root).resolve()
+    reference_audio_dir = Path(reference_audio_dir).resolve()
+    audio_index = _index_paths_with_suffixes(reference_audio_dir, _AUDIO_EXTENSIONS)
+
+    items: List[Dict[str, Any]] = []
+    missing_reference_audio: List[str] = []
+    for item in tqdm(
+        payload.get("items", []),
+        desc="Attach reference audio",
+        unit="file",
+        dynamic_ncols=True,
+    ):
+        updated = dict(item)
+        gt_midi = Path(str(item["gt_midi"])).resolve()
+        reference_audio = _find_first_index_match(audio_index, _path_key_candidates(gt_root, gt_midi))
+        if reference_audio is None:
+            updated.pop("real_audio", None)
+            missing_reference_audio.append(str(gt_midi))
+        else:
+            updated["real_audio"] = str(reference_audio)
+        items.append(updated)
+
+    merged = dict(payload)
+    merged["items"] = items
+    merged["reference_audio_dir"] = str(reference_audio_dir)
+    merged["missing_reference_audio"] = missing_reference_audio
+    if manifest_out is not None:
+        dump_json(manifest_out, merged)
+    return merged
 
 
 def _summary_row_from_result(summary: Mapping[str, Any], *, label: str) -> Dict[str, Any]:
@@ -431,7 +690,12 @@ def evaluate_prediction_manifest(
     results: List[Dict[str, Any]] = []
     ok_count = 0
     fail_count = 0
-    for item in items:
+    for item in tqdm(
+        items,
+        desc=f"Evaluate [{label}]",
+        unit="file",
+        dynamic_ncols=True,
+    ):
         try:
             res = evaluate_prediction_item(
                 item,
@@ -524,7 +788,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_manifest.add_argument("--overwrite_render", action="store_true")
 
     p_dataset = subparsers.add_parser("dataset", help="Build a manifest from dataset + pred MIDI dir, then evaluate.")
-    p_dataset.add_argument("--dataset_type", required=True, choices=["smd", "maestro", "maps"])
+    p_dataset.add_argument("--dataset_type", required=True, choices=["smd", "maestro", "maps", "francoisleduc", "gaps"])
     p_dataset.add_argument("--dataset_dir", required=True)
     p_dataset.add_argument("--pred_midi_dir", required=True)
     p_dataset.add_argument("--label", required=True)

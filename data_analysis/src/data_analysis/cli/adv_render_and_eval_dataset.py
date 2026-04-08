@@ -89,14 +89,14 @@ def main() -> None:
     p.add_argument(
         "--dataset_type",
         required=True,
-        choices=["smd", "maestro", "maps", "francoisleduc", "francoisledu"],
+        choices=["smd", "maestro", "maps", "francoisleduc", "gaps"],
     )
     p.add_argument("--dataset_dir", required=True)
     p.add_argument(
         "--split",
         type=str,
         default="test",
-        help="MAESTRO/FrancoisLeduc only: train/valid/validation/test/all (default: test)",
+        help="MAESTRO/FrancoisLeduc/GAPS only: train/valid/validation/test/all (default: test)",
     )
     p.add_argument("--maps_pianos", type=str, default="both", choices=["both", "ENSTDkCl", "ENSTDkAm"])
     p.add_argument("--instrument", required=True, help=".sfz or .sf2 instrument path")
@@ -157,7 +157,7 @@ def main() -> None:
     num_fail = 0
     num_skip = 0
 
-    loop = tqdm(midi_files, desc=f"{dataset_type.upper()} adv render+eval", unit="track")
+    loop = tqdm(midi_files, desc=dataset_type.upper(), unit="track")
     for midi_path in loop:
         midi_path = midi_path.resolve()
         item_out_dir = build_item_out_dir(out_dir, dataset_dir, midi_path)
@@ -278,7 +278,7 @@ def main() -> None:
 
     summary = {
         "dataset_type": dataset_type,
-        "split": args.split if dataset_type in {"maestro", "francoisleduc"} else None,
+        "split": args.split if dataset_type in {"maestro", "francoisleduc", "gaps"} else None,
         "maps_pianos": args.maps_pianos if dataset_type == "maps" else None,
         "dataset_dir": str(dataset_dir),
         "instrument": str(Path(args.instrument).resolve()),

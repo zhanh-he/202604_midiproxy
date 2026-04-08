@@ -1,5 +1,0 @@
-cfg:
-  _target_: optuna.pruners.HyperbandPruner
-  reduction_factor: 3
-
-name: hyperband
