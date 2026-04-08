@@ -11,7 +11,7 @@ device: cpu
 paths:
   repo_root: ${oc.env:PROJECT_ROOT,.}
   workspace_dir: /media/mengh/SharedData/zhanh/202601_midisemi_data
-  project_name: synth-proxy_v1
+  project_name: synth-proxy
 
   project_dir: ${paths.workspace_dir}/${paths.project_name}
   data_dir: ${paths.project_dir}/data

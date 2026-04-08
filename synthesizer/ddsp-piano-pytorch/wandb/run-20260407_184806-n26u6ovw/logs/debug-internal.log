@@ -1,2 +1,0 @@
-{"time":"2026-04-07T18:48:06.999008019+10:00","level":"INFO","msg":"stream: starting","core version":"0.19.3","symlink path":"/media/mengh/SharedData/zhanh/202604_midiproxy/synthesizer/ddsp-piano-pytorch/wandb/run-20260407_184806-n26u6ovw/logs/debug-core.log"}
-{"time":"2026-04-07T18:48:06.999477126+10:00","level":"ERROR+4","msg":"stream_init: failed to fetch credentials: api: couldn't get API key: settings: failed to get API key from netrc: $HOME is not defined"}

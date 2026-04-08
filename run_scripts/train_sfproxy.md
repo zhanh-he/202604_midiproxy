@@ -1,4 +1,13 @@
 # SFProxy 训练说明
+```bash
+cd /media/mengh/SharedData/zhanh/202604_midiproxy
+
+INSTRUMENT=guitar SEGMENT_SECONDS=2 bash preprocess_sfproxy_data.sh 
+INSTRUMENT=guitar SEGMENT_SECONDS=5 bash preprocess_sfproxy_data.sh
+INSTRUMENT=guitar SEGMENT_SECONDS=10 bash preprocess_sfproxy_data.sh
+
+wait
+```
 
 这份说明只讲一件事：**sampler 怎么理解，数据怎么准备，脚本怎么跑。**
 

@@ -87,7 +87,22 @@ def _apply_velocity_stats_flag(sampler_cfg, use_velocity_stats: bool):
 
 
 def _resolve_sampler_dict(cfg: DictConfig) -> dict:
-    sampler_dict = OmegaConf.to_container(cfg.sampler_options[cfg.sampler_preset], resolve=True)
+    preset = str(cfg.sampler_preset)
+    if preset in cfg.sampler_options:
+        sampler_dict = OmegaConf.to_container(cfg.sampler_options[preset], resolve=True)
+        return _apply_velocity_stats_flag(dict(sampler_dict), bool(cfg.sampler_velo_present))
+
+    if preset not in cfg.sampler_weights_v2:
+        raise KeyError(f"Unknown sampler_preset: {preset}")
+
+    components = OmegaConf.to_container(cfg.sampler_components_v2, resolve=True)
+    weights = OmegaConf.to_container(cfg.sampler_weights_v2[preset], resolve=True)
+    sampler_dict = {"type": "mixed", "components": {}}
+    for name, component_cfg in dict(components).items():
+        child_cfg = dict(component_cfg)
+        child_cfg["weight"] = float(dict(weights).get(str(name), 0.0) or 0.0)
+        sampler_dict["components"][str(name)] = child_cfg
+
     return _apply_velocity_stats_flag(dict(sampler_dict), bool(cfg.sampler_velo_present))
 
 
@@ -167,9 +182,14 @@ def export_dataset_pkl(cfg: DictConfig) -> None:
             "d_seg": None,
         }
 
-        log.info("Export configs")
-        for k, v in configs_dict.items():
-            log.info(f"{k}: {v}")
+        log.info(
+            "Export %s split=%s preset=%s seg=%.3fs size=%d",
+            instrument.name,
+            str(cfg.split),
+            str(cfg.get("sampler_preset")),
+            seg_len_s,
+            int(exported_size),
+        )
 
         with open(output_dir / "configs.pkl", "wb") as f:
             torch.save(configs_dict, f)

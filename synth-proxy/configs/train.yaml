@@ -7,7 +7,7 @@ defaults:
 sampler_preset: mixed_v2
 segment_seconds: 2.0
 boundary_mode: default
-task_name: ${dataset.train.instrument_name}_${sampler_preset}_${seg_tag:${segment_seconds}}_${boundary_mode}
+task_name: ${sampler_preset}_${seg_tag:${segment_seconds}}_${boundary_mode}
 reset_output_dir: false
 
 tags:
@@ -43,7 +43,7 @@ paths:
   # Per-machine data workspace. Override from CLI if needed:
   # paths.workspace_dir=/some/other/root
   workspace_dir: /media/mengh/SharedData/zhanh/202601_midisemi_data
-  project_name: synth-proxy_v1
+  project_name: synth-proxy
 
   project_dir: ${paths.workspace_dir}/${paths.project_name}
   data_dir: ${paths.project_dir}/data
