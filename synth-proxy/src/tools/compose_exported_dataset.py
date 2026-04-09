@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import math
 from pathlib import Path
 from typing import Sequence
 
+from omegaconf import OmegaConf
 import torch
 
 REQUIRED_FILES = [
@@ -19,10 +19,12 @@ OPTIONAL_FILES = ["targets_seg.pkl"]
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compose multiple exported SFProxy datasets into one dataset.")
     parser.add_argument("--input-dirs", nargs="+", required=True, help="Input dataset directories.")
-    parser.add_argument("--weights", nargs="+", required=True, type=float, help="Mixture weights for each input dir.")
+    parser.add_argument("--weights", nargs="+", type=float, help="Mixture weights for each input dir.")
     parser.add_argument("--names", nargs="*", default=None, help="Optional component names.")
     parser.add_argument("--out-dir", required=True, help="Output dataset directory.")
-    parser.add_argument("--total-size", type=int, required=True, help="Number of samples in the composed dataset.")
+    parser.add_argument("--total-size", type=int, default=None, help="Number of samples in the composed dataset.")
+    parser.add_argument("--config-file", type=str, default="", help="Optional YAML config file that defines sampler_weights_v2.")
+    parser.add_argument("--preset", type=str, default="", help="Preset name inside sampler_weights_v2 when using --config-file.")
     parser.add_argument("--seed", type=int, default=86, help="Random seed for deterministic composition.")
     parser.add_argument("--preset-name", type=str, default="mixed_v2", help="Logical preset name stored in configs.pkl.")
     parser.add_argument(
@@ -31,6 +33,20 @@ def _parse_args() -> argparse.Namespace:
         help="Allow sampling with replacement when a component dataset is smaller than its requested count.",
     )
     return parser.parse_args()
+
+
+def _load_recipe(config_file: str, preset: str) -> tuple[list[str], list[float]]:
+    if not config_file or not preset:
+        raise ValueError("Both --config-file and --preset are required when loading weights from config")
+
+    cfg = OmegaConf.load(config_file)
+    mapping = OmegaConf.to_container(cfg.sampler_weights_v2[preset], resolve=True)
+    if not isinstance(mapping, dict) or not mapping:
+        raise ValueError(f"Could not load sampler_weights_v2.{preset} from {config_file}")
+
+    names = [str(name) for name in mapping.keys()]
+    weights = [float(mapping[name]) for name in mapping.keys()]
+    return names, weights
 
 
 def _allocate_counts(total_size: int, weights: Sequence[float]) -> list[int]:
@@ -139,8 +155,18 @@ def _concat_selected(dataset_dirs: Sequence[Path], counts: Sequence[int], rng: t
 def main() -> None:
     args = _parse_args()
     dataset_dirs = [Path(p).resolve() for p in args.input_dirs]
-    weights = [float(w) for w in args.weights]
     names = list(args.names or [])
+
+    if args.weights is None:
+        if not args.config_file:
+            raise ValueError("Provide --weights or use --config-file with --preset")
+        recipe_names, recipe_weights = _load_recipe(args.config_file, args.preset)
+        if names and len(names) != len(recipe_names):
+            raise ValueError("--names must match the configured recipe length")
+        names = names or recipe_names
+        weights = recipe_weights
+    else:
+        weights = [float(w) for w in args.weights]
 
     if len(dataset_dirs) != len(weights):
         raise ValueError("--input-dirs and --weights must have the same length")
@@ -155,7 +181,8 @@ def main() -> None:
     configs = [_load_configs(dataset_dir) for dataset_dir in dataset_dirs]
     _check_compatibility(configs, dataset_dirs)
 
-    counts = _allocate_counts(int(args.total_size), weights)
+    total_size = int(args.total_size) if args.total_size is not None else int(configs[0]["dataset_size"])
+    counts = _allocate_counts(total_size, weights)
     rng = torch.Generator().manual_seed(int(args.seed))
     merged = _concat_selected(dataset_dirs, counts, rng, bool(args.allow_replacement))
 
@@ -163,25 +190,26 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     base_cfg = dict(configs[0])
+    composed_sampler = {
+        "type": "composed",
+        "preset": str(args.preset_name),
+        "components": [
+            {
+                "name": str(name),
+                "weight": float(weight),
+                "count": int(count),
+                "source_dir": str(dataset_dir),
+            }
+            for name, weight, count, dataset_dir in zip(names, weights, counts, dataset_dirs)
+        ],
+    }
     base_cfg.update(
         {
-            "dataset_size": int(args.total_size),
+            "dataset_size": int(total_size),
             "start_index": 0,
-            "end_index": int(args.total_size),
+            "end_index": int(total_size),
             "sampler_preset": str(args.preset_name),
-            "sampler": {
-                "type": "composed",
-                "preset": str(args.preset_name),
-                "components": [
-                    {
-                        "name": str(name),
-                        "weight": float(weight),
-                        "count": int(count),
-                        "source_dir": str(dataset_dir),
-                    }
-                    for name, weight, count, dataset_dir in zip(names, weights, counts, dataset_dirs)
-                ],
-            },
+            "sampler": composed_sampler,
             "compose_seed": int(args.seed),
         }
     )
@@ -197,7 +225,7 @@ def main() -> None:
     summary_lines = [
         f"Wrote composed dataset to {out_dir}",
         f"preset={args.preset_name}",
-        f"total_size={args.total_size}",
+        f"total_size={total_size}",
     ]
     for name, count, weight, dataset_dir in zip(names, counts, weights, dataset_dirs):
         summary_lines.append(f"  - {name}: count={count}, weight={weight:.4f}, dir={dataset_dir}")

@@ -13,15 +13,17 @@ DEFAULT_INSTRUMENT="piano"
 DEFAULT_PIANO_DATASET="maestro"
 DEFAULT_GUITAR_DATASET="francoisleduc"
 DEFAULT_BOUNDARY_MODE="default"
-DEFAULT_TARGET_PRESET="all"
 
 INSTRUMENT="${INSTRUMENT:-${DEFAULT_INSTRUMENT}}"
 PIANO_DATASET="${PIANO_DATASET:-${DEFAULT_PIANO_DATASET}}"
 GUITAR_DATASET="${GUITAR_DATASET:-${DEFAULT_GUITAR_DATASET}}"
 BOUNDARY_MODE="${BOUNDARY_MODE:-${DEFAULT_BOUNDARY_MODE}}"
-TARGET_PRESET="${TARGET_PRESET:-${DEFAULT_TARGET_PRESET}}"
 SEGMENT_SECONDS="${SEGMENT_SECONDS:-}"
 SEGMENT_LIST="${SEGMENT_LIST:-}"
+EXPORT_BATCH_SIZE="${EXPORT_BATCH_SIZE:-}"
+EXPORT_NUM_WORKERS="${EXPORT_NUM_WORKERS:-}"
+EXPORT_PREFETCH_FACTOR="${EXPORT_PREFETCH_FACTOR:-}"
+MIX_WEIGHTS="${MIX_WEIGHTS:-}"
 
 segment_tag() {
   local value="$1"
@@ -38,19 +40,20 @@ REALISM_STATS_JSON="${ANALYSIS_DIR}/stats/midi_sampler/${MIDI_DATASET}_sampler.j
 
 segment_input="${SEGMENT_SECONDS:-${SEGMENT_LIST:-${DEFAULT_SEGMENTS}}}"
 read -r -a SEGMENTS <<< "${segment_input//,/ }"
+PRESETS=(boundary_v2 coverage_v2 realism_v2 stress_v2)
 
-case "${TARGET_PRESET}" in
-  all)
-    PRESETS=(coverage_v2 realism_v2 mixed_v2)
-    ;;
-  boundary_v2|coverage_v2|realism_v2|stress_v2|mixed_v2)
-    PRESETS=("${TARGET_PRESET}")
-    ;;
-  *)
-    echo "Unsupported TARGET_PRESET='${TARGET_PRESET}'." >&2
+mix_weight_args=()
+if [[ -n "${MIX_WEIGHTS}" ]]; then
+  read -r -a mix_weights <<< "${MIX_WEIGHTS//,/ }"
+  if [[ "${#mix_weights[@]}" -ne 4 ]]; then
+    echo "MIX_WEIGHTS must provide 4 values: boundary coverage realism stress" >&2
     exit 1
-    ;;
-esac
+  fi
+  mix_weight_args=(
+    --names boundary coverage realism stress
+    --weights "${mix_weights[@]}"
+  )
+fi
 
 mkdir -p "${DATA_DIR}" "${ANALYSIS_DIR}/stats/sfproxy_boundaries"
 cd "${ROOT_DIR}"
@@ -104,7 +107,7 @@ for segment_seconds in "${SEGMENTS[@]}"; do
     echo "${preset} ${segment_seconds}s"
 
     for split in train val; do
-      out_dir="${DATA_DIR}/${INSTRUMENT_NAME}/${INSTRUMENT_NAME}_${preset}_${tag}_${BOUNDARY_MODE}/${split}"
+      out_dir="${DATA_DIR}/${INSTRUMENT_NAME}/${preset}_${tag}_${BOUNDARY_MODE}/${split}"
       if [[ -f "${out_dir}/configs.pkl" ]] \
         && [[ -f "${out_dir}/inputs_pitch.pkl" ]] \
         && [[ -f "${out_dir}/inputs_cont.pkl" ]] \
@@ -126,8 +129,35 @@ for segment_seconds in "${SEGMENTS[@]}"; do
         "boundary_mode=${BOUNDARY_MODE}" \
         "split=${split}" \
         "reset_output_dir=true" \
+        ${EXPORT_BATCH_SIZE:+"batch_size=${EXPORT_BATCH_SIZE}"} \
+        ${EXPORT_NUM_WORKERS:+"num_workers=${EXPORT_NUM_WORKERS}"} \
+        ${EXPORT_PREFETCH_FACTOR:+"prefetch_factor=${EXPORT_PREFETCH_FACTOR}"} \
         "${boundary_overrides[@]}"
     done
+  done
+
+  echo "mixed_v2 ${segment_seconds}s"
+  for split in train val; do
+    out_dir="${DATA_DIR}/${INSTRUMENT_NAME}/mixed_v2_${tag}_${BOUNDARY_MODE}/${split}"
+    if [[ -f "${out_dir}/configs.pkl" ]] \
+      && [[ -f "${out_dir}/inputs_pitch.pkl" ]] \
+      && [[ -f "${out_dir}/inputs_cont.pkl" ]] \
+      && [[ -f "${out_dir}/inputs_mask.pkl" ]] \
+      && [[ -f "${out_dir}/targets_note.pkl" ]]; then
+      continue
+    fi
+
+    python "${ROOT_DIR}/synth-proxy/src/tools/compose_exported_dataset.py" \
+      --input-dirs \
+        "${DATA_DIR}/${INSTRUMENT_NAME}/boundary_v2_${tag}_${BOUNDARY_MODE}/${split}" \
+        "${DATA_DIR}/${INSTRUMENT_NAME}/coverage_v2_${tag}_${BOUNDARY_MODE}/${split}" \
+        "${DATA_DIR}/${INSTRUMENT_NAME}/realism_v2_${tag}_${BOUNDARY_MODE}/${split}" \
+        "${DATA_DIR}/${INSTRUMENT_NAME}/stress_v2_${tag}_${BOUNDARY_MODE}/${split}" \
+      --config-file "${ROOT_DIR}/synth-proxy/configs/data_${INSTRUMENT}.yaml" \
+      --preset mixed_v2 \
+      --preset-name mixed_v2 \
+      "${mix_weight_args[@]}" \
+      --out-dir "${out_dir}"
   done
 done
 

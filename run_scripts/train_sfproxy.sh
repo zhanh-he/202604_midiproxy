@@ -14,6 +14,7 @@ TRAIN_PRESET="${TRAIN_PRESET:-mixed_v2}"
 
 WANDB_PROJECT="${WANDB_PROJECT:-sfproxy_ablation}"
 WANDB_GROUP="${WANDB_GROUP:-sfproxy_${INSTRUMENT}_single}"
+WANDB_MODE="${WANDB_MODE:-online}"
 EXTRA_TRAIN_OVERRIDES="${EXTRA_TRAIN_OVERRIDES:-}"
 
 case "${TRAIN_PRESET}" in
@@ -30,18 +31,34 @@ sfproxy_set_profile "${INSTRUMENT}" "${PIANO_DATASET}" "${GUITAR_DATASET}"
 INSTRUMENT="${INSTRUMENT}" \
 PIANO_DATASET="${PIANO_DATASET}" \
 GUITAR_DATASET="${GUITAR_DATASET}" \
-TARGET_PRESET="${TRAIN_PRESET}" \
+MIX_WEIGHTS="${MIX_WEIGHTS:-}" \
 SEGMENT_SECONDS="${SEGMENT_SECONDS}" \
 BOUNDARY_MODE="${BOUNDARY_MODE}" \
 "${SCRIPT_DIR}/preprocess_sfproxy_data.sh"
 
 cd "${ROOT_DIR}"
 read -r -a extra_train_args <<< "${EXTRA_TRAIN_OVERRIDES}"
+mix_train_args=()
+
+if [[ -n "${MIX_WEIGHTS:-}" ]]; then
+  read -r -a mix_weights <<< "${MIX_WEIGHTS//,/ }"
+  if [[ "${#mix_weights[@]}" -ne 4 ]]; then
+    echo "MIX_WEIGHTS must provide 4 values: boundary coverage realism stress" >&2
+    exit 1
+  fi
+  mix_train_args=(
+    "sampler_mix.boundary=${mix_weights[0]}"
+    "sampler_mix.coverage=${mix_weights[1]}"
+    "sampler_mix.realism=${mix_weights[2]}"
+    "sampler_mix.stress=${mix_weights[3]}"
+  )
+fi
 
 echo "train ${TRAIN_PRESET} ${INSTRUMENT_NAME} ${SEGMENT_SECONDS}s ${BOUNDARY_MODE}"
 
 WANDB_PROJECT="${WANDB_PROJECT}" \
 WANDB_GROUP="${WANDB_GROUP}" \
+WANDB_MODE="${WANDB_MODE}" \
 python "${ROOT_DIR}/synth-proxy/src/train.py" \
   --config-name train \
   "paths.repo_root=${ROOT_DIR}" \
@@ -52,4 +69,5 @@ python "${ROOT_DIR}/synth-proxy/src/train.py" \
   "dataset.train.instrument_name=${INSTRUMENT_NAME}" \
   "dataset.val.instrument_name=${INSTRUMENT_NAME}" \
   "reset_output_dir=true" \
+  "${mix_train_args[@]}" \
   "${extra_train_args[@]}"

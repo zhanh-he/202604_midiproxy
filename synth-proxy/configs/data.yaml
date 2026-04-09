@@ -72,9 +72,10 @@ seed_offset: ${split_value:${split},${train_seed_offset},${val_seed_offset}}
 start_index: 0
 end_index: ${dataset_size}
 
-# DataLoader
-batch_size: 4
-num_workers: 0
+# Export throughput
+batch_size: 8
+num_workers: 8
+prefetch_factor: 2
 
 # Rejection sampling filters
 rms_min: 0.01

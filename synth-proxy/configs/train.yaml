@@ -5,9 +5,16 @@ defaults:
 
 # Self-contained train config.
 sampler_preset: mixed_v2
+sampler_mix:
+  boundary: ${sampler_weight:${sampler_preset},boundary}
+  coverage: ${sampler_weight:${sampler_preset},coverage}
+  realism: ${sampler_weight:${sampler_preset},realism}
+  stress: ${sampler_weight:${sampler_preset},stress}
+sampler_mix_tag: ${sampler_mix_tag:${sampler_mix.boundary},${sampler_mix.coverage},${sampler_mix.realism},${sampler_mix.stress}}
+sampler_tag: ${sampler_tag:${sampler_preset},${sampler_mix_tag}}
 segment_seconds: 2.0
 boundary_mode: default
-task_name: ${sampler_preset}_${seg_tag:${segment_seconds}}_${boundary_mode}
+task_name: ${dataset.name}_${dataset.train.instrument_name}_${sampler_tag}_${seg_tag:${segment_seconds}}_${boundary_mode}
 reset_output_dir: false
 
 tags:
@@ -16,6 +23,7 @@ tags:
   - ${task_name}
   - dataset:${dataset.name}
   - instrument:${dataset.train.instrument_name}
+  - sampler:${sampler_tag}
   - preset:${sampler_preset}
   - boundary:${boundary_mode}
   - segment:${seg_tag:${segment_seconds}}
@@ -30,15 +38,14 @@ ablation:
   dataset_name: ${dataset.name}
   instrument_name: ${dataset.train.instrument_name}
   sampler_preset: ${sampler_preset}
+  sampler_tag: ${sampler_tag}
   boundary_mode: ${boundary_mode}
   segment_seconds: ${segment_seconds}
   segment_tag: ${seg_tag:${segment_seconds}}
   run_name: ${task_name}
 
 paths:
-  # Default to the launch directory so notebooks/scripts run cleanly from repo root
-  # without requiring PROJECT_ROOT to be exported.
-  repo_root: ${oc.env:PROJECT_ROOT,.}
+  repo_root: .
 
   # Per-machine data workspace. Override from CLI if needed:
   # paths.workspace_dir=/some/other/root
@@ -149,12 +156,12 @@ logger:
     name: ${task_name}
     id: ${run_id}
     anonymous: null
-    project: ${oc.env:WANDB_PROJECT,sfproxy}
+    project: sfproxy_ablation
     log_model: False
     prefix: ""
-    group: ${oc.env:WANDB_GROUP,sfproxy_ablation_${dataset.name}_${dataset.train.instrument_name}}
+    group: sfproxy_${dataset.name}_${dataset.train.instrument_name}
     tags: ${tags}
-    job_type: ${oc.env:WANDB_JOB_TYPE,sfproxy_train}
+    job_type: sfproxy_train
     resume: allow
 
 trainer:

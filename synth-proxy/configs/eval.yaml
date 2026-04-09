@@ -9,7 +9,7 @@ ckpt_path: null
 device: cpu
 
 paths:
-  repo_root: ${oc.env:PROJECT_ROOT,.}
+  repo_root: .
   workspace_dir: /media/mengh/SharedData/zhanh/202601_midisemi_data
   project_name: synth-proxy
 
@@ -46,7 +46,7 @@ monotonic:
 velocity_recovery:
   instrument:
     name: salamander_piano
-    path: /media/mengh/SharedData/zhanh/202601_midisemi_data/soundfront/SalamanderGrandPiano-SF2-V3+20200602/SalamanderGrandPiano-V3+20200602.sf2
+    path: /media/mengh/SharedData/zhanh/202601_midisemi_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz
     backend: auto
     bank: 0
     program: 0

@@ -6,6 +6,9 @@ INSTRUMENT=guitar SEGMENT_SECONDS=2 bash preprocess_sfproxy_data.sh
 INSTRUMENT=guitar SEGMENT_SECONDS=5 bash preprocess_sfproxy_data.sh
 INSTRUMENT=guitar SEGMENT_SECONDS=10 bash preprocess_sfproxy_data.sh
 
+MIX_WEIGHTS="0.3 0.4 0.2 0.1" bash preprocess_sfproxy_parallel_train.sh
+MIX_WEIGHTS="0.3 0.4 0.2 0.1" bash preprocess_sfproxy_parallel_val.sh
+
 wait
 ```
 

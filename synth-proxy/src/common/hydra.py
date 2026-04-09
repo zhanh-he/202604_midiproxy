@@ -14,6 +14,15 @@ from common.logging import RankedLogger
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
+DEFAULT_SAMPLER_WEIGHTS = {
+    "boundary_v2": {"boundary": 1.0, "coverage": 0.0, "realism": 0.0, "stress": 0.0},
+    "coverage_v2": {"boundary": 0.0, "coverage": 1.0, "realism": 0.0, "stress": 0.0},
+    "realism_v2": {"boundary": 0.0, "coverage": 0.0, "realism": 1.0, "stress": 0.0},
+    "stress_v2": {"boundary": 0.0, "coverage": 0.0, "realism": 0.0, "stress": 1.0},
+    "mixed_v2": {"boundary": 0.3, "coverage": 0.4, "realism": 0.2, "stress": 0.1},
+}
+
+
 def _register_resolver(name: str, fn: Callable) -> None:
     if OmegaConf.has_resolver(name):
         return
@@ -36,6 +45,46 @@ def _resolve_split_value(split: str, train_value, val_value):
     raise ValueError(f"Unsupported split '{split}'. Expected 'train' or 'val'.")
 
 
+def _resolve_sampler_weight(sampler_preset: str, component: str):
+    preset = str(sampler_preset).strip()
+    name = str(component).strip()
+    if preset in DEFAULT_SAMPLER_WEIGHTS:
+        return DEFAULT_SAMPLER_WEIGHTS[preset][name]
+    if preset in {"coverage_v1", "realism_v1", "coverage_shared_legacy", "realism_shared_legacy"}:
+        return ""
+    raise ValueError(f"Unsupported sampler_preset '{preset}'.")
+
+
+def _format_mix_value(value: float) -> str:
+    text = f"{float(value):g}"
+    return text.replace(".", "p")
+
+
+def _resolve_sampler_mix_tag(boundary, coverage, realism, stress) -> str:
+    values = [boundary, coverage, realism, stress]
+    if all(value in (None, "") for value in values):
+        return ""
+    if any(value in (None, "") for value in values):
+        raise ValueError("sampler_mix requires boundary, coverage, realism, and stress.")
+
+    return "_".join(
+        [
+            f"b{_format_mix_value(float(boundary))}",
+            f"c{_format_mix_value(float(coverage))}",
+            f"r{_format_mix_value(float(realism))}",
+            f"s{_format_mix_value(float(stress))}",
+        ]
+    )
+
+
+def _resolve_sampler_tag(sampler_preset: str, sampler_mix_tag: str) -> str:
+    preset = str(sampler_preset).strip()
+    mix_tag = str(sampler_mix_tag).strip()
+    if not mix_tag:
+        return preset
+    return f"{preset}_{mix_tag}"
+
+
 def register_resolvers() -> None:
     _register_resolver("mul", lambda x, y: x * y)
     _register_resolver("start", lambda total_num_steps, start_ratio: int(start_ratio * total_num_steps))
@@ -51,6 +100,9 @@ def register_resolvers() -> None:
     )
     _register_resolver("seg_tag", _resolve_seg_tag)
     _register_resolver("split_value", _resolve_split_value)
+    _register_resolver("sampler_weight", _resolve_sampler_weight)
+    _register_resolver("sampler_mix_tag", _resolve_sampler_mix_tag)
+    _register_resolver("sampler_tag", _resolve_sampler_tag)
 
 
 def instantiate_callbacks(callbacks_cfg: DictConfig | None) -> List[Callback] | None:
