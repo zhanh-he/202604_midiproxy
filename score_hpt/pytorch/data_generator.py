@@ -1,6 +1,9 @@
 import argparse
 import os
+import shutil
+import subprocess
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +31,43 @@ from utilities import (
 
 def _sr_tag(cfg):
     return f"sr{int(cfg.feature.sample_rate)}"
+
+
+def _load_audio_mono(path, sample_rate: int) -> np.ndarray:
+    """Load mono audio while avoiding noisy librosa/audioread MP3 fallback warnings."""
+    path = str(path)
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin:
+        cmd = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            path,
+            "-f",
+            "f32le",
+            "-ac",
+            "1",
+            "-ar",
+            str(int(sample_rate)),
+            "pipe:1",
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if result.returncode == 0:
+            audio = np.frombuffer(result.stdout, dtype=np.float32)
+            if audio.size > 0:
+                return audio
+            raise RuntimeError(f"Decoded empty audio from {path}")
+
+        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
+        logging.warning(f"ffmpeg decode failed for {path}; falling back to librosa. {stderr or 'unknown error'}")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        warnings.simplefilter("ignore", category=FutureWarning)
+        audio, _ = librosa.core.load(path, sr=sample_rate, mono=True)
+    return np.asarray(audio, dtype=np.float32)
 
 
 def _decode_hdf5_str(value):
@@ -402,7 +442,7 @@ def pack_maestro_dataset_to_hdf5(cfg):
         midi_dict = read_midi(midi_path, "maestro")
 
         audio_path = os.path.join(dataset_dir, meta_dict["audio_filename"][n])
-        audio, _ = librosa.core.load(audio_path, sr=cfg.feature.sample_rate, mono=True)
+        audio = _load_audio_mono(audio_path, sample_rate=cfg.feature.sample_rate)
         audio = _fit_audio_for_hdf5(audio, audio_path)
 
         packed_hdf5_path = os.path.join(
@@ -474,7 +514,7 @@ def pack_maps_dataset_to_hdf5(cfg):
             audio_path = f"{os.path.join(sub_dir, audio_name)}.wav"
             midi_path = f"{os.path.join(sub_dir, audio_name)}.mid"
 
-            audio, _ = librosa.core.load(audio_path, sr=cfg.feature.sample_rate, mono=True)
+            audio = _load_audio_mono(audio_path, sample_rate=cfg.feature.sample_rate)
             audio = _fit_audio_for_hdf5(audio, audio_path)
             midi_dict = read_midi(midi_path, "maps")
             duration = librosa.get_duration(y=audio, sr=cfg.feature.sample_rate)
@@ -533,7 +573,7 @@ def pack_smd_dataset_to_hdf5(cfg):
         audio_path = os.path.join(dataset_dir, f"{audio_name}.mp3")
         midi_path = os.path.join(dataset_dir, f"{audio_name}.mid")
 
-        audio, _ = librosa.core.load(audio_path, sr=cfg.feature.sample_rate, mono=True)
+        audio = _load_audio_mono(audio_path, sample_rate=cfg.feature.sample_rate)
         audio = _fit_audio_for_hdf5(audio, audio_path)
         midi_dict = read_midi(midi_path, "smd")
         duration = librosa.get_duration(y=audio, sr=cfg.feature.sample_rate)
@@ -593,7 +633,7 @@ def pack_francoisleduc_dataset_to_hdf5(cfg):
         if not midi_path.is_file():
             raise FileNotFoundError(f"Missing FrancoisLeduc MIDI file: {midi_path}")
 
-        audio, _ = librosa.core.load(str(audio_path), sr=cfg.feature.sample_rate, mono=True)
+        audio = _load_audio_mono(str(audio_path), sample_rate=cfg.feature.sample_rate)
         audio = _fit_audio_for_hdf5(audio, audio_path)
         midi_dict = read_midi(str(midi_path), "francoisleduc")
         duration = float(librosa.get_duration(y=audio, sr=cfg.feature.sample_rate))
@@ -656,7 +696,7 @@ def pack_gaps_dataset_to_hdf5(cfg):
         if not midi_path.is_file():
             raise FileNotFoundError(f"Missing GAPS MIDI file: {midi_path}")
 
-        audio, _ = librosa.core.load(str(audio_path), sr=cfg.feature.sample_rate, mono=True)
+        audio = _load_audio_mono(str(audio_path), sample_rate=cfg.feature.sample_rate)
         audio = _fit_audio_for_hdf5(audio, audio_path)
         midi_dict = read_midi(str(midi_path), "gaps")
         duration = float(librosa.get_duration(y=audio, sr=cfg.feature.sample_rate))

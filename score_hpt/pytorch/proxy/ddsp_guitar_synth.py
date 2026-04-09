@@ -4,12 +4,12 @@ from pathlib import Path
 import importlib
 import math
 import sys
-from typing import Dict, Optional, Sequence
+from typing import Dict
 
 import torch
 
-from pytorch_utils import move_data_to_device
 from .common import (
+    build_guitar_synth_inputs_from_note_events,
     choose_crop_bounds,
     crop_audio,
     crop_roll_time_first,
@@ -36,22 +36,11 @@ class DDSPGuitarSynthProxy:
         self.velocity_midi_max = max(1.0, default_velocity_scale - 1.0)
 
         ddsp_cfg = getattr(cfg.proxy, 'ddsp_guitar', None)
-        synth_input_keys = getattr(ddsp_cfg, 'synth_input_keys', None)
-        self.pitch_key = str(getattr(synth_input_keys, 'midi_pitch', 'synth_midi_pitch'))
-        self.legacy_pitch_key = 'proxy_midi_pitch'
-        self.string_index_key = str(getattr(synth_input_keys, 'string_index', 'synth_string_index'))
-        self.legacy_string_index_key = 'proxy_string_index'
-        self.onset_key = str(getattr(synth_input_keys, 'midi_onsets', 'synth_midi_onsets'))
-        self.legacy_onset_key = 'proxy_midi_onsets'
-        self.activity_key = str(getattr(synth_input_keys, 'midi_activity', 'synth_midi_activity'))
-        self.legacy_activity_key = 'proxy_midi_activity'
-        self.default_synth_input_frame_rate = float(getattr(ddsp_cfg, 'source_frame_rate', self.src_frames_per_second) or self.src_frames_per_second)
-        self.batch_frame_rate_key = str(getattr(ddsp_cfg, 'batch_frame_rate_key', 'synth_input_frame_rate') or 'synth_input_frame_rate')
-        self.legacy_batch_frame_rate_key = 'proxy_frame_rate'
         self.configured_sample_rate = int(getattr(ddsp_cfg, 'sample_rate', 22050) or 22050)
         self.configured_frame_rate = float(getattr(ddsp_cfg, 'frame_rate', 100.0) or 100.0)
         self.configured_hop_size = int(getattr(ddsp_cfg, 'hop_size', 0) or 0)
         self.configured_n_fft = int(getattr(ddsp_cfg, 'n_fft', 2048) or 2048)
+        self.max_fret = int(getattr(ddsp_cfg, 'max_fret', 24) or 24)
         self.native_sample_rate = int(getattr(ddsp_cfg, 'native_sample_rate', self.configured_sample_rate) or self.configured_sample_rate)
         self.native_frame_rate = float(getattr(ddsp_cfg, 'native_frame_rate', self.configured_frame_rate) or self.configured_frame_rate)
         self.native_segment_seconds = float(getattr(ddsp_cfg, 'native_segment_seconds', 10.0) or 10.0)
@@ -65,9 +54,12 @@ class DDSPGuitarSynthProxy:
         proxy_root = self._resolve_proxy_root()
         self.model = self._build_model(proxy_root)
         self.model.to(self.device)
-        self.model.eval()
         for param in self.model.parameters():
             param.requires_grad = False
+        # DDSP-Guitar-Synth contains GRU layers. We still need gradients to flow
+        # from backend audio loss back into vel_pred, so cuDNN RNNs must run in
+        # training mode even though backend parameters stay frozen.
+        self.model.train()
 
     @staticmethod
     def _round_half_up(x: float) -> int:
@@ -85,13 +77,7 @@ class DDSPGuitarSynthProxy:
             if generic:
                 root = Path(generic).expanduser().resolve()
             else:
-                candidates = [
-                    Path(__file__).resolve().parents[3] / 'synthesizer' / 'ddsp-guitar-synth',
-                    Path(__file__).resolve().parents[3] / 'synthesizer' / 'ddsp-guitar',
-                    Path(__file__).resolve().parents[3] / 'synthesizer_ddsp' / 'ddsp-guitar-synth',
-                    Path(__file__).resolve().parents[3] / 'synthesizer_ddsp' / 'ddsp-guitar',
-                ]
-                root = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+                root = Path(__file__).resolve().parents[3] / 'synthesizer' / 'ddsp-guitar-synth'
         if not root.exists():
             raise FileNotFoundError(f"DDSP-Guitar-Synth project root not found: {root}")
         return root
@@ -141,60 +127,6 @@ class DDSPGuitarSynthProxy:
         return model
 
     @staticmethod
-    def _candidate_batch_keys(preferred_key: str, legacy_key: str) -> list[str]:
-        keys = []
-        for key in (preferred_key, legacy_key):
-            if not key:
-                continue
-            key = str(key)
-            if key not in keys:
-                keys.append(key)
-            if key.startswith('synth_'):
-                alt = 'proxy_' + key[len('synth_'):]
-                if alt not in keys:
-                    keys.append(alt)
-            if key.startswith('proxy_'):
-                alt = 'synth_' + key[len('proxy_'):]
-                if alt not in keys:
-                    keys.append(alt)
-        return keys
-
-    def _find_batch_key(self, batch_data_dict, preferred_key: str, legacy_key: str, required: bool) -> Optional[str]:
-        for key in self._candidate_batch_keys(preferred_key, legacy_key):
-            if key in batch_data_dict:
-                return key
-        if required:
-            tried = ', '.join(self._candidate_batch_keys(preferred_key, legacy_key))
-            raise KeyError(
-                f"DDSP-Guitar-Synth requires synthesizer-input tensor '{preferred_key}'. "
-                f"Checked batch keys: {tried}. Please add this tensor in the dataset packer."
-            )
-        return None
-
-    @staticmethod
-    def _scalar_from_batch_value(value, default: float) -> float:
-        if value is None:
-            return float(default)
-        if torch.is_tensor(value):
-            flat = value.detach().cpu().reshape(-1)
-            if flat.numel() == 0:
-                return float(default)
-            return float(flat[0].item())
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-            if len(value) == 0:
-                return float(default)
-            return float(value[0])
-        return float(value)
-
-    def _resolve_synth_input_frame_rate(self, batch_data_dict) -> float:
-        for key in self._candidate_batch_keys(self.batch_frame_rate_key, self.legacy_batch_frame_rate_key):
-            if key in batch_data_dict:
-                frame_rate = self._scalar_from_batch_value(batch_data_dict[key], self.default_synth_input_frame_rate)
-                if frame_rate > 0:
-                    return frame_rate
-        return self.default_synth_input_frame_rate
-
-    @staticmethod
     def _derive_onsets(midi_pitch: torch.Tensor) -> torch.Tensor:
         active = (midi_pitch > 0).to(midi_pitch.dtype)
         onsets = torch.zeros_like(active)
@@ -205,17 +137,18 @@ class DDSPGuitarSynthProxy:
         return onsets
 
     def _crop_batch(self, batch_data_dict, audio: torch.Tensor, vel_pred: torch.Tensor, random_state=None):
-        synth_input_frame_rate = self._resolve_synth_input_frame_rate(batch_data_dict)
-        if synth_input_frame_rate <= 0:
-            raise ValueError(f'Invalid DDSP-Guitar-Synth synthesizer-input frame rate: {synth_input_frame_rate}')
-
-        pitch_batch_key = self._find_batch_key(batch_data_dict, self.pitch_key, self.legacy_pitch_key, required=True)
-        onset_batch_key = self._find_batch_key(batch_data_dict, self.onset_key, self.legacy_onset_key, required=False)
-        activity_batch_key = self._find_batch_key(batch_data_dict, self.activity_key, self.legacy_activity_key, required=False)
-
-        midi_pitch = move_data_to_device(batch_data_dict[pitch_batch_key], self.device).float()
-        midi_onsets = move_data_to_device(batch_data_dict[onset_batch_key], self.device).float() if onset_batch_key else None
-        midi_activity = move_data_to_device(batch_data_dict[activity_batch_key], self.device).float() if activity_batch_key else None
+        synth_input_frame_rate = self.src_frames_per_second
+        aligned_note_events = batch_data_dict['aligned_note_events']
+        derived = build_guitar_synth_inputs_from_note_events(
+            aligned_note_events,
+            frame_rate=synth_input_frame_rate,
+            segment_seconds=self.segment_seconds,
+            max_fret=self.max_fret,
+            device=self.device,
+        )
+        midi_pitch = derived['midi_pitch']
+        midi_onsets = derived['midi_onsets']
+        midi_activity = derived['midi_activity']
 
         start_sec, crop_sec = choose_crop_bounds(
             total_seconds=self.segment_seconds,

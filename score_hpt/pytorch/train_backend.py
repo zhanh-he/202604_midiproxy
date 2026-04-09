@@ -418,6 +418,17 @@ def _average_meter(meter: Dict[str, float], steps: int) -> Dict[str, float]:
 
 
 
+def _select_console_train_losses(statistics: Dict[str, float]) -> Dict[str, float]:
+    keep_keys = (
+        "total_loss",
+        "supervised_loss",
+        "proxy_loss",
+        "prior_loss",
+    )
+    return {key: statistics[key] for key in keep_keys if key in statistics}
+
+
+
 def _format_loss_line(iteration: int, values: Dict[str, Any]) -> str:
     ordered = [f"iter {iteration}"]
     key_alias = {"proxy_loss": "backend_loss"}
@@ -600,7 +611,7 @@ def train(cfg):
             avg_train_stats = _average_meter(train_meter, train_loss_steps)
 
             if avg_train_stats:
-                logging.info(f"    Train Losses: {avg_train_stats}")
+                logging.info(f"    Train Losses: {_select_console_train_losses(avg_train_stats)}")
 
             log_payload: Dict[str, Any] = {"iteration": iteration}
             for key, value in avg_train_stats.items():

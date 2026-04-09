@@ -237,32 +237,44 @@ class SFProxyObjective:
             return None
         return [self._crop_note_events(sample, start_sec=start_sec, crop_sec=crop_sec) for sample in note_events_batch]
 
-    def _pack_note_tuples(
+    def _to_note_scalar(self, value) -> torch.Tensor:
+        if torch.is_tensor(value):
+            return value.to(device=self.device, dtype=torch.float32).reshape(())
+        return torch.tensor(float(value), device=self.device, dtype=torch.float32)
+
+    def _pack_note_fields(
         self,
-        notes: List[Tuple[float, int, int, float, float]],
+        midi_notes: List[int],
+        onset_secs: List[float],
+        dur_secs: List[float],
+        velocity_values: List[torch.Tensor],
         segment_seconds: float,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
-        if not notes:
+        if not midi_notes:
             empty_pitch = torch.zeros((0,), device=self.device, dtype=torch.long)
             empty_cont = torch.zeros((0, 3), device=self.device, dtype=torch.float32)
             empty_mask = torch.zeros((0,), device=self.device, dtype=torch.bool)
             return empty_pitch, empty_cont, empty_cont.clone(), empty_mask, 0
 
-        notes.sort(key=lambda item: (item[0], item[1]))
+        order = sorted(range(len(midi_notes)), key=lambda idx: (onset_secs[idx], midi_notes[idx]))
         if self.max_notes > 0:
-            notes = notes[: self.max_notes]
+            order = order[: self.max_notes]
 
-        pitch = torch.tensor([item[2] for item in notes], device=self.device, dtype=torch.long)
-        cont_sec = torch.tensor(
-            [[item[0], item[3], item[4]] for item in notes],
-            device=self.device,
-            dtype=torch.float32,
-        )
-        cont_norm = cont_sec.clone()
+        pitch = torch.tensor([midi_notes[idx] for idx in order], device=self.device, dtype=torch.long)
+        onset = torch.tensor([onset_secs[idx] for idx in order], device=self.device, dtype=torch.float32)
+        duration = torch.tensor([dur_secs[idx] for idx in order], device=self.device, dtype=torch.float32)
+        velocity = torch.stack([self._to_note_scalar(velocity_values[idx]) for idx in order], dim=0)
+
+        cont_sec = torch.stack([onset, duration, velocity], dim=-1)
         denom = max(float(segment_seconds), 1e-6)
-        cont_norm[:, 0] = (cont_norm[:, 0] / denom).clamp(0.0, 1.0)
-        cont_norm[:, 1] = (cont_norm[:, 1] / denom).clamp(0.0, 1.0)
-        cont_norm[:, 2] = cont_norm[:, 2].clamp(0.0, 1.0)
+        cont_norm = torch.stack(
+            [
+                (onset / denom).clamp(0.0, 1.0),
+                (duration / denom).clamp(0.0, 1.0),
+                velocity.clamp(0.0, 1.0),
+            ],
+            dim=-1,
+        )
         mask = torch.ones((pitch.numel(),), device=self.device, dtype=torch.bool)
         return pitch, cont_sec, cont_norm, mask, int(pitch.numel())
 
@@ -282,11 +294,14 @@ class SFProxyObjective:
         """
         fps = float(self.src_frames_per_second)
         min_dur = float(self.min_duration_frames) / max(fps, 1e-6)
-        vel_np = vel_pred.detach().cpu().clamp(0.0, 1.0)
-        total_frames = int(vel_np.shape[0])
-        total_pitches = int(vel_np.shape[1]) if vel_np.ndim >= 2 else 0
+        vel_clamped = vel_pred.clamp(0.0, 1.0)
+        total_frames = int(vel_clamped.shape[0])
+        total_pitches = int(vel_clamped.shape[1]) if vel_clamped.ndim >= 2 else 0
 
-        notes: List[Tuple[float, int, int, float, float]] = []
+        midi_notes: List[int] = []
+        onset_secs: List[float] = []
+        dur_secs: List[float] = []
+        velocity_values: List[torch.Tensor] = []
         for event in note_events or []:
             if not isinstance(event, dict):
                 continue
@@ -302,12 +317,21 @@ class SFProxyObjective:
             if total_frames > 0:
                 onset_frame = int(round(onset_sec * fps))
                 onset_frame = max(0, min(onset_frame, total_frames - 1))
-                velocity_01 = float(vel_np[onset_frame, pitch_idx].item())
+                velocity_01 = vel_clamped[onset_frame, pitch_idx]
             else:
-                velocity_01 = 0.0
-            notes.append((onset_sec, pitch_idx, midi_note, dur_sec, velocity_01))
+                velocity_01 = vel_pred.new_zeros(())
+            midi_notes.append(midi_note)
+            onset_secs.append(onset_sec)
+            dur_secs.append(dur_sec)
+            velocity_values.append(velocity_01)
 
-        return self._pack_note_tuples(notes, segment_seconds=segment_seconds)
+        return self._pack_note_fields(
+            midi_notes=midi_notes,
+            onset_secs=onset_secs,
+            dur_secs=dur_secs,
+            velocity_values=velocity_values,
+            segment_seconds=segment_seconds,
+        )
 
     def _extract_note_list(
         self,
@@ -325,9 +349,12 @@ class SFProxyObjective:
         fps = float(self.src_frames_per_second)
         onset_np = (onset_roll.detach().cpu() > self.onset_threshold)
         frame_np = (frame_roll.detach().cpu() > self.frame_threshold)
-        vel_np = vel_pred.detach().cpu().clamp(0.0, 1.0)
+        vel_clamped = vel_pred.clamp(0.0, 1.0)
 
-        notes: List[Tuple[float, int, int, float, float]] = []
+        midi_notes: List[int] = []
+        onset_secs: List[float] = []
+        dur_secs: List[float] = []
+        velocity_values: List[torch.Tensor] = []
         total_frames, total_pitches = onset_np.shape
 
         for pitch_idx in range(total_pitches):
@@ -350,10 +377,22 @@ class SFProxyObjective:
 
                 onset_sec = float(start_frame) / fps
                 dur_sec = max(float(self.min_duration_frames) / fps, float(end_frame - start_frame) / fps)
-                velocity_01 = float(vel_np[start_frame, pitch_idx].item()) if start_frame < vel_np.shape[0] else 0.0
-                notes.append((onset_sec, pitch_idx, self.begin_note + pitch_idx, dur_sec, velocity_01))
+                if start_frame < vel_clamped.shape[0]:
+                    velocity_01 = vel_clamped[start_frame, pitch_idx]
+                else:
+                    velocity_01 = vel_pred.new_zeros(())
+                midi_notes.append(self.begin_note + pitch_idx)
+                onset_secs.append(onset_sec)
+                dur_secs.append(dur_sec)
+                velocity_values.append(velocity_01)
 
-        return self._pack_note_tuples(notes, segment_seconds=segment_seconds)
+        return self._pack_note_fields(
+            midi_notes=midi_notes,
+            onset_secs=onset_secs,
+            dur_secs=dur_secs,
+            velocity_values=velocity_values,
+            segment_seconds=segment_seconds,
+        )
 
     def _build_note_batch(
         self,

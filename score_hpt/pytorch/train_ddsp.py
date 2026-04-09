@@ -15,9 +15,11 @@ def _compose_cfg(default_overrides):
 
 if __name__ == "__main__":
     cfg = _compose_cfg([
+        "loss.supervised_weight=0.0",
         "proxy.enabled=true",
         "proxy.type=diffsynth_piano",
         "loss.proxy_weight=1.0",
+        "loss.velocity_prior_weight=0.0",
         "proxy.backend_segment_seconds=0.0",
     ])
     train_backend(cfg)

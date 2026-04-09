@@ -1,0 +1,26 @@
+Findings
+
+Route IV 当前基本没有把 proxy_loss 的梯度传回 vel_pred，所以它虽不该 OOM，但训练目标也基本失效。sfproxy.py 在 _extract_note_list_from_events() 里先做了 vel_pred.detach().cpu()，后面又把速度值当 Python float 重新打包成新 tensor；这会切断从 proxy_loss 到 vel_pred 的计算图。_extract_target_features() 上的 @torch.no_grad() 只影响目标特征提取，不是主要问题；真正的问题是前面的 detach()。所以如果你预期 Route IV 是“冻结 backend，但 loss 仍监督 veloest”，当前实现不满足这个预期。
+
+Route III 的 backend 没有被训练，但它是“冻结且可微”的，不是“冻结且 no-grad”的；因此 OOM 本身不说明实现错了。train_backend.py 的 optimizer 只拿 model.parameters()，也就是 ScoreInfWrapper(adapter + post)，不包含 backend。与此同时，ddsp_guitar_synth.py 把 backend eval()，并在 ddsp_guitar_synth.py 把所有 backend 参数 requires_grad=False。但 objective.py 调 renderer.render(...) 时没有 torch.no_grad()，这是必须的，因为 Route III 需要从 audio loss 反传到 vel_pred。如果这里加 no_grad()，Route III backend loss 也会像现在的 Route IV 一样失效。OOM 更可能是“图确实在穿过 DDSP backend + STFT loss”，不是“backend 被优化了”。
+
+Route III 的显存大头很可能在 backend audio path 和多尺度频谱损失，而不是在 score_hpt 主干本身。ddsp_guitar_synth.py 里 vel_pred 经过 resample、gather、DDSP renderer 前向，随后 objective.py 又进 audio loss。这个链条为了保留对 vel_pred 的梯度，会存很多中间激活，尤其是 10s 段长、较大 batch、以及频谱损失时。它和“参数冻结”不矛盾。
+
+结论
+你的核心判断要拆开看：
+
+“backend 不该被训练”：当前 Route III/IV 的参数层面是对的，backend 不在 optimizer 里，而且参数被冻结。
+“backend 不该吃很多显存”：这对 Route III 不成立，只要你要通过 backend loss 训练 veloest，就必须保留输入梯度图，显存自然会上去。
+“Route IV 也该只训练前端，同时利用 frozen backend 监督前端”：当前实现反而有 bug，梯度被切断了。
+建议
+
+如果你要我下一步处理，我建议先修 Route IV 的梯度链，因为这是正确性 bug。
+对 Route III，如果你想避免 OOM，只能做“降显存”而不是“对 backend 加 no-grad”：
+降 exp.batch_size
+缩短 proxy.backend_segment_seconds
+减轻 audio loss
+或者给 backend/loss 上 mixed precision 或 checkpointing
+如果你要，我下一步可以直接给你做两件事之一：
+
+修 Route IV，让 frozen diffproxy 真正对 veloest 产生梯度。
+给 Route III 做一版低显存实现。

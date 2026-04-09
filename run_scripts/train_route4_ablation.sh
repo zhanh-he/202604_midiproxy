@@ -20,6 +20,8 @@ EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 SEGMENT_LIST="${SEGMENT_LIST:-2 5 10}"
 CROP_MODES="${CROP_MODES:-random}"
 LOSS_TYPES="${LOSS_TYPES:-smooth_l1}"
+SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
+PROXY_WEIGHT="${PROXY_WEIGHT:-1.0}"
 PRIOR_WEIGHTS="${PRIOR_WEIGHTS:-0.0 0.01}"
 WARMUP_ITERS="${WARMUP_ITERS:-0}"
 
@@ -45,6 +47,8 @@ for SEGMENT_SECONDS in ${SEGMENT_LIST}; do
         echo "Front-end seg (s) : 10"
         echo "Backend crop (s)  : ${SEGMENT_SECONDS}"
         echo "Crop mode         : ${CROP_MODE}"
+        echo "Supervised weight : ${SUPERVISED_WEIGHT}"
+        echo "Proxy weight      : ${PROXY_WEIGHT}"
         echo "Proxy loss        : ${PROXY_LOSS}"
         echo "Prior weight      : ${PRIOR_WEIGHT}"
         echo "============================================================"
@@ -55,7 +59,8 @@ for SEGMENT_SECONDS in ${SEGMENT_LIST}; do
           "model.input2=onset" \
           "model.input3=frame" \
           "score_informed.method=note_editor" \
-          "loss.proxy_weight=1.0" \
+          "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
+          "loss.proxy_weight=${PROXY_WEIGHT}" \
           "loss.velocity_prior_weight=${PRIOR_WEIGHT}" \
           "proxy.enabled=true" \
           "proxy.type=diffproxy" \

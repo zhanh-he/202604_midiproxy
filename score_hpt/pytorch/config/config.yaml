@@ -115,7 +115,10 @@ post:
 loss:
   loss_type: "kim_bce_l1" # "velocity_bce" | "velocity_mse" | "kim_bce_l1"
   kim_loss_alpha: 0.5  # Weight of BCE term in Kim et al. 2024 BCE+L1 loss
-  supervised_weight: 1.0
+  # Neutral defaults. Route-specific entrypoints set their own loss weights:
+  # Route II -> supervised=1, proxy=0, prior=0
+  # Route III/IV -> supervised=0, proxy=1, prior=0 unless overridden
+  supervised_weight: 0.0
   proxy_weight: 0.0
   velocity_prior_weight: 0.0
   velocity_prior_mean: 0.5
@@ -305,30 +308,14 @@ proxy:
       pedal: "pedal_frame_roll"
 
   ddsp_guitar:
-    # Repo default guitar DiffSynth implementation now points to DDSP-Guitar-Synth.
-    # To switch back for ablation, keep proxy.type=diffsynth_guitar but set:
-    #   proxy.ddsp_guitar.implementation: ddsp_guitar
-    #   proxy.ddsp.project_root: /abs/path/to/synthesizer/ddsp-guitar
-    implementation: "ddsp_guitar_synth"   # ddsp_guitar_synth | ddsp_guitar
-    # Current repo default contract for newly trained DDSP-Guitar-Synth checkpoints.
-    # The actual renderer FPS is derived from sample_rate / hop_size.
-    # With sample_rate=22050 and target frame_rate=100, hop_size rounds to 221.
+    max_fret: 24
     native_sample_rate: 22050
     native_frame_rate: 100
     native_segment_seconds: 10.0
     sample_rate: 22050
     frame_rate: 100
-    hop_size: 0              # 0 -> derive closest integer hop from sample_rate / frame_rate
+    hop_size: 0
     n_fft: 2048
-    # Preferred names for tensors sent into DiffSynth-Guitar.
-    # Legacy proxy_* names are still accepted by the wrapper.
-    synth_input_keys:
-      midi_pitch: "synth_midi_pitch"
-      string_index: "synth_string_index"
-      midi_onsets: "synth_midi_onsets"
-      midi_activity: "synth_midi_activity"
-    source_frame_rate: ${feature.frames_per_second}
-    batch_frame_rate_key: "synth_input_frame_rate"
 
   sfproxy:
     project_root: ""        # optional backend-specific root. default: ../synth-proxy (flat src/ + configs/)

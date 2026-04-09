@@ -9,6 +9,7 @@ from torch.optim import Adam, AdamW
 
 from typing import Dict, Any, Optional, Tuple
 from hydra import initialize, compose
+from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 import wandb
 
@@ -77,6 +78,12 @@ def init_wandb(cfg):
         name=_train_wandb_name(cfg),
         config=OmegaConf.to_container(cfg, resolve=True),
     )
+
+
+def _compose_cfg(default_overrides):
+    GlobalHydra.instance().clear()
+    initialize(config_path="./config", job_name="train", version_base=None)
+    return compose(config_name="config", overrides=list(default_overrides) + sys.argv[1:])
 
 
 def _select_velocity_metrics(statistics):
@@ -460,6 +467,9 @@ def train(cfg):
 
 
 if __name__ == "__main__":
-    initialize(config_path="./config", job_name="train", version_base=None)
-    cfg = compose(config_name="config", overrides=sys.argv[1:])
+    cfg = _compose_cfg([
+        "loss.supervised_weight=1.0",
+        "loss.proxy_weight=0.0",
+        "loss.velocity_prior_weight=0.0",
+    ])
     train(cfg)

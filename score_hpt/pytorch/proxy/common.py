@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Optional, Tuple
 import numpy as np
 import torch
@@ -7,6 +8,7 @@ import torch.nn.functional as F
 
 
 EPS = 1e-8
+OPEN_GUITAR_STRING_PITCHES = (40, 45, 50, 55, 59, 64)
 
 
 def _round_half_up(x: float) -> int:
@@ -327,3 +329,106 @@ def derive_channel_onsets(assigned_pitch: torch.Tensor) -> torch.Tensor:
         changed = assigned_pitch[1:] != assigned_pitch[:-1]
         onsets[1:] = ((assigned_pitch[1:] > 0) & changed).to(assigned_pitch.dtype)
     return onsets
+
+
+def candidate_guitar_strings(pitch: int, max_fret: int = 24) -> list[int]:
+    """Return playable guitar strings for a MIDI pitch under standard tuning."""
+    return [
+        string_idx
+        for string_idx, open_pitch in enumerate(OPEN_GUITAR_STRING_PITCHES)
+        if open_pitch <= int(pitch) <= open_pitch + int(max_fret)
+    ]
+
+
+def build_guitar_synth_inputs_from_note_events(
+    batch_note_events,
+    *,
+    frame_rate: float,
+    segment_seconds: float,
+    max_fret: int = 24,
+    device: Optional[torch.device] = None,
+    dtype: torch.dtype = torch.float32,
+) -> dict[str, torch.Tensor]:
+    """Heuristically map note events to 6-string DDSP-Guitar conditioning.
+
+    This mirrors the assignment logic used in the DDSP-Guitar-Synth dataset prep:
+    pitches are assigned to playable strings under standard tuning, preferring
+    free higher strings and otherwise the string that becomes available first.
+    """
+    if batch_note_events is None:
+        raise ValueError("batch_note_events must not be None")
+
+    batch_size = len(batch_note_events)
+    frames_total = max(1, int(round(float(segment_seconds) * float(frame_rate))))
+
+    midi_pitch = torch.zeros((batch_size, 6, frames_total), dtype=dtype, device=device)
+    midi_onsets = torch.zeros_like(midi_pitch)
+    midi_activity = torch.zeros_like(midi_pitch)
+    string_index = (
+        torch.arange(6, device=device, dtype=dtype)
+        .view(1, 6, 1)
+        .expand(batch_size, 6, frames_total)
+        .clone()
+    )
+
+    for batch_idx, events in enumerate(batch_note_events):
+        notes_by_onset = defaultdict(list)
+        for event in events or []:
+            pitch = int(event.get("midi_note", event.get("pitch", 0)) or 0)
+            if pitch <= 0:
+                continue
+
+            onset_time = float(event.get("onset_time", event.get("onset_s", 0.0)) or 0.0)
+            offset_time = float(event.get("offset_time", event.get("offset_s", onset_time)) or onset_time)
+            onset_frame = int(round(onset_time * float(frame_rate)))
+            if onset_frame < 0 or onset_frame >= frames_total:
+                continue
+
+            offset_frame = int(round(offset_time * float(frame_rate)))
+            offset_frame = max(onset_frame + 1, min(frames_total, offset_frame))
+            notes_by_onset[onset_frame].append(
+                {
+                    "pitch": pitch,
+                    "onset": onset_frame,
+                    "offset": offset_frame,
+                }
+            )
+
+        active_until = np.zeros(6, dtype=np.int64)
+        for onset_frame in sorted(notes_by_onset):
+            used_strings: set[int] = set()
+            group = sorted(
+                notes_by_onset[onset_frame],
+                key=lambda note: (-int(note["pitch"]), -int(note["offset"])),
+            )
+            for note in group:
+                candidates = [
+                    string_idx
+                    for string_idx in candidate_guitar_strings(int(note["pitch"]), max_fret=max_fret)
+                    if string_idx not in used_strings
+                ]
+                if not candidates:
+                    continue
+
+                free_candidates = [
+                    string_idx for string_idx in candidates if int(active_until[string_idx]) <= onset_frame
+                ]
+                if free_candidates:
+                    string_idx = max(free_candidates)
+                else:
+                    string_idx = min(candidates, key=lambda idx: (int(active_until[idx]), -idx))
+
+                onset = int(note["onset"])
+                offset = int(note["offset"])
+                midi_pitch[batch_idx, string_idx, onset:offset] = float(note["pitch"])
+                midi_onsets[batch_idx, string_idx, onset] = 1.0
+                midi_activity[batch_idx, string_idx, onset:offset] = 1.0
+                active_until[string_idx] = offset
+                used_strings.add(string_idx)
+
+    return {
+        "midi_pitch": midi_pitch,
+        "midi_onsets": midi_onsets,
+        "midi_activity": midi_activity,
+        "string_index": string_index,
+    }
