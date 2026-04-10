@@ -59,7 +59,7 @@ resolve_sfproxy_ckpt() {
   local best_ckpt
 
   run_dir="$(sampler_dir "$sampler" "$segment")" || return 1
-  base_dir="../kaya_data/synth-proxy/proxy/checkpoints/salamander_piano/${run_dir}"
+  base_dir="$SFPROXY_ROOT/proxy/checkpoints/salamander_piano/${run_dir}"
 
   case "$SFPROXY_CKPT_KIND" in
     final)
@@ -92,20 +92,11 @@ WORKSPACE_DIR=./workspaces
 rm -rf "$WORKSPACE_DIR"
 mkdir -p "$WORKSPACE_DIR"
 
-KAYA_DATA_DIR=../kaya_data
-rm -rf "$KAYA_DATA_DIR"
-mkdir -p "$KAYA_DATA_DIR"
-
 HDF5_SRC="$DATA_ROOT/score_hpt/workspaces/hdf5s"
 HDF5_VIEW="$WORKSPACE_DIR/hdf5s"
-DDSP_SRC="$DATA_ROOT/ddsp-piano-pytorch"
-DDSP_VIEW="$KAYA_DATA_DIR/ddsp-piano-pytorch"
-SFPROXY_SRC="$DATA_ROOT/synth-proxy"
-SFPROXY_VIEW="$KAYA_DATA_DIR/synth-proxy"
+SFPROXY_ROOT="$DATA_ROOT/synth-proxy"
 
 ln -s "$HDF5_SRC" "$HDF5_VIEW"
-ln -s "$DDSP_SRC" "$DDSP_VIEW"
-ln -s "$SFPROXY_SRC" "$SFPROXY_VIEW"
 
 [ -d "$HDF5_VIEW/maestro_sr22050" ] || { echo "Missing MAESTRO HDF5: $HDF5_VIEW/maestro_sr22050" >&2; exit 1; }
 [ -d "$HDF5_VIEW/smd_sr22050" ] || { echo "Missing SMD HDF5: $HDF5_VIEW/smd_sr22050" >&2; exit 1; }

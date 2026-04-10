@@ -34,9 +34,11 @@ export MASTER_PORT=${MASTER_PORT:-$((15000 + RANDOM % 20000))}
 
 # Paths
 FOLDER_NAME=${SLURM_JOB_ID}
-EXECUTABLE=$HOME/202601_midisemi/ddsp-piano-pytorch
-SCRATCH=$MYSCRATCH/202601_midisemi/ddsp-piano-pytorch/$FOLDER_NAME
-RESULTS=$MYGROUP/202601_ddsp_result/$FOLDER_NAME
+PROJECT_NAME=${PROJECT_NAME:-202604_midiproxy}
+DATA_PROJECT=${DATA_PROJECT:-202604_midiproxy_data}
+EXECUTABLE=${EXECUTABLE:-$HOME/$PROJECT_NAME/synthesizer/ddsp-piano-pytorch}
+SCRATCH=${SCRATCH:-$MYSCRATCH/$PROJECT_NAME/ddsp-piano-pytorch/$FOLDER_NAME}
+RESULTS=${RESULTS:-$MYGROUP/${PROJECT_NAME}_results/ddsp-piano-pytorch/$FOLDER_NAME}
 
 # Creates a unique directory in the SCRATCH and GROUP directory 
 mkdir -p $SCRATCH $RESULTS
@@ -49,12 +51,12 @@ cp -r $EXECUTABLE $SCRATCH
 cd $SCRATCH/ddsp-piano-pytorch
 
 # Link dataset (parent exists, target does not → correct ln -s usage)
-DATA_SRC=$MYSCRATCH/202601_midisemi_data/ddsp-piano-pytorch/workspaces/data_cache
+DATA_SRC=${DATA_SRC:-$MYSCRATCH/$DATA_PROJECT/ddsp-piano-pytorch/workspaces/data_cache}
 DATA_VIEW=$SCRATCH/ddsp-piano-pytorch/workspaces/data_cache
 ln -s $DATA_SRC $DATA_VIEW
 
 # Link trained models view (to load previous phase checkpoints when needed)
-MODELS_SRC=$MYSCRATCH/202601_midisemi_data/ddsp-piano-pytorch/workspaces/models
+MODELS_SRC=${MODELS_SRC:-$MYSCRATCH/$DATA_PROJECT/ddsp-piano-pytorch/workspaces/models}
 MODELS_VIEW=$SCRATCH/ddsp-piano-pytorch/workspaces/models
 ln -s $MODELS_SRC $MODELS_VIEW
 

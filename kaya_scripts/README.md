@@ -3,8 +3,8 @@
 这几个脚本按 `202510_smc/run_scripts` 的老模版写，保留了：
 
 - `cp -r` 到 scratch
-- `workspaces` 下软链 `hdf5s`
-- 显式链接 `hdf5s`、`ddsp-piano-pytorch`、`synth-proxy`
+- `workspaces/hdf5s` 软链到 scratch 数据根
+- DDSP / SFProxy checkpoint 直接走 `$MYSCRATCH/202604_midiproxy_data/...`
 - `SLURM_ARRAY_TASK_ID` 展开 ablation 组合
 - 训练结束后把 `checkpoints/` 和 `logs/` 挪回 `${MYGROUP}`
 
@@ -126,17 +126,15 @@ exp:
   workspace: "./workspaces"
 ```
 
-所以 Kaya 脚本都会在 `score_hpt/` 目录下直接使用相对工作区，并显式建立这三个链接：
+所以 Kaya 脚本都会在 `score_hpt/` 目录下直接使用相对工作区：
 
 - `workspaces/hdf5s -> $MYSCRATCH/202604_midiproxy_data/score_hpt/workspaces/hdf5s`
-- `../kaya_data/ddsp-piano-pytorch -> $MYSCRATCH/202604_midiproxy_data/ddsp-piano-pytorch`
-- `../kaya_data/synth-proxy -> $MYSCRATCH/202604_midiproxy_data/synth-proxy`
+- DDSP checkpoint -> `$MYSCRATCH/202604_midiproxy_data/ddsp-piano-pytorch/...`
+- SFProxy checkpoint -> `$MYSCRATCH/202604_midiproxy_data/synth-proxy/...`
 
-Kaya 脚本现在会在 scratch 副本里先删掉 repo 自带的 `score_hpt/workspaces` 符号链接，再用最直接的方式建三个链接：
+Kaya 脚本现在会在 scratch 副本里先删掉 repo 自带的 `score_hpt/workspaces` 符号链接，再用最直接的方式只建 HDF5 入口：
 
 - `workspaces/hdf5s -> $MYSCRATCH/202604_midiproxy_data/score_hpt/workspaces/hdf5s`
-- `../kaya_data/ddsp-piano-pytorch -> $MYSCRATCH/202604_midiproxy_data/ddsp-piano-pytorch`
-- `../kaya_data/synth-proxy -> $MYSCRATCH/202604_midiproxy_data/synth-proxy`
 
 可选：
 

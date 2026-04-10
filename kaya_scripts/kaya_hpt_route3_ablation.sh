@@ -42,20 +42,11 @@ rm -rf "$WORKSPACE_DIR"
 mkdir -p "$WORKSPACE_DIR"
 
 DATA_ROOT="$MYSCRATCH/${DATA_PROJECT}"
-KAYA_DATA_DIR=../kaya_data
-rm -rf "$KAYA_DATA_DIR"
-mkdir -p "$KAYA_DATA_DIR"
-
 HDF5_SRC="$DATA_ROOT/score_hpt/workspaces/hdf5s"
 HDF5_VIEW="$WORKSPACE_DIR/hdf5s"
-DDSP_SRC="$DATA_ROOT/ddsp-piano-pytorch"
-DDSP_VIEW="$KAYA_DATA_DIR/ddsp-piano-pytorch"
-SFPROXY_SRC="$DATA_ROOT/synth-proxy"
-SFPROXY_VIEW="$KAYA_DATA_DIR/synth-proxy"
+DDSP_ROOT="$DATA_ROOT/ddsp-piano-pytorch"
 
 ln -s "$HDF5_SRC" "$HDF5_VIEW"
-ln -s "$DDSP_SRC" "$DDSP_VIEW"
-ln -s "$SFPROXY_SRC" "$SFPROXY_VIEW"
 
 [ -d "$HDF5_VIEW/maestro_sr22050" ] || { echo "Missing MAESTRO HDF5: $HDF5_VIEW/maestro_sr22050" >&2; exit 1; }
 [ -d "$HDF5_VIEW/smd_sr22050" ] || { echo "Missing SMD HDF5: $HDF5_VIEW/smd_sr22050" >&2; exit 1; }
@@ -85,7 +76,7 @@ EXP_AUDIO_LOSS=()
 EXP_DDSP_CKPT=()
 
 for SEGMENT_SECONDS in "${SEGMENTS[@]}"; do
-  DDSP_CKPT="../kaya_data/ddsp-piano-pytorch/workspaces_unified_${SEGMENT_SECONDS}s/models/phase_${DDSP_PHASE}/ckpts/ddsp-piano_epoch_${DDSP_CKPT_EPOCH}_params.pt"
+  DDSP_CKPT="$DDSP_ROOT/workspaces_unified_${SEGMENT_SECONDS}s/models/phase_${DDSP_PHASE}/ckpts/ddsp-piano_epoch_${DDSP_CKPT_EPOCH}_params.pt"
   for AUDIO_LOSS in "${AUDIO_LOSSES[@]}"; do
     EXP_NAME+=("route3_ddsp_${SEGMENT_SECONDS}s_${AUDIO_LOSS}")
     EXP_SEGMENT+=("$SEGMENT_SECONDS")

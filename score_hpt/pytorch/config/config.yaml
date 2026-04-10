@@ -5,14 +5,11 @@ wandb:
 
 
 exp:
-  workspace: "./workspaces" # kaya / scratch-friendly default
-  # workspace: "/media/datadisk/home/22828187/zhanh/202510_hpt_data/workspaces" #uwa
-  # workspace: "/Users/hanyu/Documents/ipynb/202510_hpt_data/workspaces" #mac
-  # workspace: "/media/mengh/SharedData/zhanh/202510_hpt_data/workspaces" #mengh
-  # workspace: "/media/mengh/SharedData/zhanh/202601_midisemi_data/score_hpt/workspaces"
-  # workspace: "/media/datadisk/home/22828187/zhanh/202601_midisemi_data/score_hpt/workspaces"
+  # workspace: "./workspaces" # kaya / scratch-friendly default
+  workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
+  # workspace: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/score_hpt/workspaces"
 
-  total_iteration: 120_000  # 200_000 # 300_000 # 360_000
+  total_iteration: 20_000  # 200_000 # 300_000 # 360_000
   save_iteration: 10_000    # 6_000 # 6_000
   eval_iteration: 10_000    # 6_000 # 6_000
 
