@@ -240,19 +240,19 @@ def read_midi(midi_path, dataset='maestro'):
         # Expect 2 tracks: track 0 for meta (tempo at index 0), track 1 for piano events
         assert len(midi_file.tracks) == 2, f"{dataset} format requires 2 tracks, found {len(midi_file.tracks)}"
         microseconds_per_beat = midi_file.tracks[0][0].tempo
-        play_track_idx = 1
+        play_tracks = [midi_file.tracks[1]]
 
     elif ds == 'smd':
         # Expect 2 tracks: track 0 for meta (tempo at index 1), track 1 for piano events
         assert len(midi_file.tracks) == 2, f"SMD format requires 2 tracks, found {len(midi_file.tracks)}"
         microseconds_per_beat = midi_file.tracks[0][1].tempo
-        play_track_idx = 1
+        play_tracks = [midi_file.tracks[1]]
 
     elif ds == 'maps':
         # Expect 1 track: contains both meta and piano events (tempo at index 0)
         assert len(midi_file.tracks) == 1, f"MAPS format requires 1 track, found {len(midi_file.tracks)}"
         microseconds_per_beat = midi_file.tracks[0][0].tempo
-        play_track_idx = 0
+        play_tracks = [midi_file.tracks[0]]
 
     else:
         raise ValueError(f"Dataset not supported: {dataset}")
@@ -265,8 +265,7 @@ def read_midi(midi_path, dataset='maestro'):
     time_in_second = []
     ticks_accum = 0
 
-    # Iterate over piano event track
-    for msg in midi_file.tracks[play_track_idx]:
+    for msg in play_tracks[0]:
         message_list.append(str(msg))
         ticks_accum += msg.time
         time_in_second.append(ticks_accum / ticks_per_second)

@@ -113,21 +113,14 @@ solver:
   seg_loss_weight: 0.05
 
 callbacks:
-  ckpt_last:
-    _target_: lightning.pytorch.callbacks.ModelCheckpoint
-    dirpath: ${paths.output_dir}
-    filename: ${task_name}_last_e{epoch}
-    auto_insert_metric_name: False
-    every_n_epochs: 1
-    save_on_train_epoch_end: True
-    save_last: link
-  ckpt_every5e:
+  ckpt_every20e:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
     dirpath: ${paths.output_dir}
     filename: ${task_name}_e{epoch}
     auto_insert_metric_name: False
-    every_n_epochs: 5
+    every_n_epochs: 20
     save_on_train_epoch_end: True
+    save_last: link
     save_top_k: -1
   ckpt_loss:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint

@@ -5,17 +5,30 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 . "${SCRIPT_DIR}/sfproxy_profile.sh"
 
+WORKSPACE_BASE="/media/mengh/SharedData/zhanh/202601_midisemi_data"
+DATA_ROOT="${WORKSPACE_BASE}/synth-proxy/data"
+
 INSTRUMENT="${INSTRUMENT:-piano}"
 PIANO_DATASET="${PIANO_DATASET:-maestro}"
 GUITAR_DATASET="${GUITAR_DATASET:-francoisleduc}"
 SEGMENT_SECONDS="${SEGMENT_SECONDS:-2}"
-BOUNDARY_MODE="${BOUNDARY_MODE:-discovered}"
+BOUNDARY_MODE="${BOUNDARY_MODE:-default}"
 TRAIN_PRESET="${TRAIN_PRESET:-mixed_v2}"
 
 WANDB_PROJECT="${WANDB_PROJECT:-sfproxy_ablation}"
 WANDB_GROUP="${WANDB_GROUP:-sfproxy_${INSTRUMENT}_single}"
 WANDB_MODE="${WANDB_MODE:-online}"
 EXTRA_TRAIN_OVERRIDES="${EXTRA_TRAIN_OVERRIDES:-}"
+
+segment_tag() {
+  local value="$1"
+  if [[ "${value}" == *.* ]]; then
+    value="${value%0}"
+    value="${value%.}"
+    value="${value//./p}"
+  fi
+  echo "${value}s"
+}
 
 case "${TRAIN_PRESET}" in
   boundary_v2|coverage_v2|realism_v2|stress_v2|mixed_v2)
@@ -39,6 +52,19 @@ BOUNDARY_MODE="${BOUNDARY_MODE}" \
 cd "${ROOT_DIR}"
 read -r -a extra_train_args <<< "${EXTRA_TRAIN_OVERRIDES}"
 mix_train_args=()
+seg_tag="$(segment_tag "${SEGMENT_SECONDS}")"
+train_data_dir="${DATA_ROOT}/${INSTRUMENT_NAME}/${TRAIN_PRESET}_${seg_tag}_${BOUNDARY_MODE}/train"
+val_data_dir="${DATA_ROOT}/${INSTRUMENT_NAME}/${TRAIN_PRESET}_${seg_tag}_${BOUNDARY_MODE}/val"
+
+if [[ ! -f "${train_data_dir}/configs.pkl" ]]; then
+  echo "Missing training dataset: ${train_data_dir}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${val_data_dir}/configs.pkl" ]]; then
+  echo "Missing validation dataset: ${val_data_dir}" >&2
+  exit 1
+fi
 
 if [[ -n "${MIX_WEIGHTS:-}" ]]; then
   read -r -a mix_weights <<< "${MIX_WEIGHTS//,/ }"
@@ -66,6 +92,8 @@ python "${ROOT_DIR}/synth-proxy/src/train.py" \
   "segment_seconds=${SEGMENT_SECONDS}" \
   "boundary_mode=${BOUNDARY_MODE}" \
   "dataset.name=${DATASET_NAME}" \
+  "dataset.train.path=${train_data_dir}" \
+  "dataset.val.path=${val_data_dir}" \
   "dataset.train.instrument_name=${INSTRUMENT_NAME}" \
   "dataset.val.instrument_name=${INSTRUMENT_NAME}" \
   "reset_output_dir=true" \

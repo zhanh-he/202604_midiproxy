@@ -1,7 +1,5 @@
 import argparse
 import os
-import shutil
-import subprocess
 import time
 import warnings
 from pathlib import Path
@@ -34,35 +32,8 @@ def _sr_tag(cfg):
 
 
 def _load_audio_mono(path, sample_rate: int) -> np.ndarray:
-    """Load mono audio while avoiding noisy librosa/audioread MP3 fallback warnings."""
+    """Load mono audio with librosa for consistent cross-machine behavior."""
     path = str(path)
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if ffmpeg_bin:
-        cmd = [
-            ffmpeg_bin,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            path,
-            "-f",
-            "f32le",
-            "-ac",
-            "1",
-            "-ar",
-            str(int(sample_rate)),
-            "pipe:1",
-        ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        if result.returncode == 0:
-            audio = np.frombuffer(result.stdout, dtype=np.float32)
-            if audio.size > 0:
-                return audio
-            raise RuntimeError(f"Decoded empty audio from {path}")
-
-        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
-        logging.warning(f"ffmpeg decode failed for {path}; falling back to librosa. {stderr or 'unknown error'}")
-
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         warnings.simplefilter("ignore", category=FutureWarning)
@@ -254,7 +225,9 @@ def _read_gaps_metadata(metadata_path):
     return rows
 
 def _fit_audio_for_hdf5(audio, source_path):
-    audio = np.asarray(audio, dtype=np.float32)
+    # ffmpeg decode can yield a read-only view from np.frombuffer; make it writable
+    # before any in-place normalization for HDF5 export.
+    audio = np.array(audio, dtype=np.float32, copy=True)
     if audio.size == 0:
         return audio
     peak = float(np.max(np.abs(audio)))
@@ -684,6 +657,8 @@ def pack_gaps_dataset_to_hdf5(cfg):
 
     feature_time = time.time()
     count = 0
+    skipped_count = 0
+    skipped_rows = []
 
     for row in tqdm(rows, desc="GAPS", unit="track"):
         split = _normalize_gaps_split(row.get("split"))
@@ -698,7 +673,19 @@ def pack_gaps_dataset_to_hdf5(cfg):
 
         audio = _load_audio_mono(str(audio_path), sample_rate=cfg.feature.sample_rate)
         audio = _fit_audio_for_hdf5(audio, audio_path)
-        midi_dict = read_midi(str(midi_path), "gaps")
+        try:
+            midi_dict = read_midi(str(midi_path), "gaps")
+        except AssertionError as exc:
+            logging.warning(f"Skipping GAPS file {stem}: {exc} ({midi_path})")
+            skipped_count += 1
+            skipped_rows.append({
+                "id": stem,
+                "split": split,
+                "audio_path": str(row["audio_path"]),
+                "midi_path": str(row["midi_path"]),
+                "reason": str(exc),
+            })
+            continue
         duration = float(librosa.get_duration(y=audio, sr=cfg.feature.sample_rate))
 
         packed_hdf5_path = os.path.join(waveform_hdf5s_dir, f"{stem}.h5")
@@ -734,8 +721,20 @@ def pack_gaps_dataset_to_hdf5(cfg):
 
         count += 1
 
+    if skipped_rows:
+        skipped_csv_path = os.path.join(waveform_hdf5s_dir, "_skipped_gaps.csv")
+        with open(skipped_csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["id", "split", "audio_path", "midi_path", "reason"],
+            )
+            writer.writeheader()
+            writer.writerows(skipped_rows)
+        logging.info(f"Wrote skipped GAPS entries to {skipped_csv_path}")
+
     logging.info(f"Write HDF5 to {waveform_hdf5s_dir}")
     logging.info(f"Total GAPS files processed: {count}")
+    logging.info(f"Total GAPS files skipped: {skipped_count}")
     logging.info(f"Time taken: {time.time() - feature_time:.3f} s")
 
 class Augmentor(object):

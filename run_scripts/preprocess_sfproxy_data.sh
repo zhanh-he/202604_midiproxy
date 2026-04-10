@@ -139,6 +139,9 @@ for segment_seconds in "${SEGMENTS[@]}"; do
   echo "mixed_v2 ${segment_seconds}s"
   for split in train val; do
     out_dir="${DATA_DIR}/${INSTRUMENT_NAME}/mixed_v2_${tag}_${BOUNDARY_MODE}/${split}"
+    if [[ -n "${MIX_WEIGHTS}" ]]; then
+      rm -rf "${out_dir}"
+    fi
     if [[ -f "${out_dir}/configs.pkl" ]] \
       && [[ -f "${out_dir}/inputs_pitch.pkl" ]] \
       && [[ -f "${out_dir}/inputs_cont.pkl" ]] \
