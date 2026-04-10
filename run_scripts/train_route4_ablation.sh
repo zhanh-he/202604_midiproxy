@@ -3,20 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python}"
+. "${SCRIPT_DIR}/score_hpt_profile.sh"
 
+PYTHON_BIN="${PYTHON_BIN:-python}"
 PROJECT_DIR="${ROOT_DIR}/score_hpt"
 PROJECT_ROOT="${PROJECT_ROOT:-${ROOT_DIR}/synth-proxy}"
 
-WORKSPACE_BASE="${WORKSPACE_BASE:-/media/mengh/SharedData/zhanh/202601_midisemi_data}"
-WORKSPACE_DIR="${WORKSPACE_DIR:-${WORKSPACE_BASE}/score_hpt/workspaces}"
-MAESTRO_DIR="${MAESTRO_DIR:-/media/mengh/SharedData/zhanh/Dataset/maestro-v3.0.0}"
-INSTRUMENT_NAME="${INSTRUMENT_NAME:-salamander_piano}"
+TRAIN_SET="${TRAIN_SET:-${DATASET:-maestro}}"
 BOUNDARY_MODE="${BOUNDARY_MODE:-default}"
-SEGMENT_LIST="${SEGMENT_LIST:-2 5 10}"
 SAMPLERS="${SAMPLERS:-coverage mixed realism}"
 LOSS_TYPES="${LOSS_TYPES:-smooth_l1 l1 mse}"
-SFPROXY_CKPT_ROOT="${SFPROXY_CKPT_ROOT:-${WORKSPACE_BASE}/synth-proxy/proxy/checkpoints/${INSTRUMENT_NAME}}"
 PROXY_CKPT="${PROXY_CKPT:-${1:-}}"
 
 BATCH_SIZE="${BATCH_SIZE:-4}"
@@ -26,28 +22,44 @@ PRIOR_WEIGHT="${PRIOR_WEIGHT:-0.0}"
 WARMUP_ITERS="${WARMUP_ITERS:-0}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
+score_hpt_init_context
+score_hpt_set_dataset_profile "${TRAIN_SET}"
+
+if [ "${DATASET_KIND}" = "guitar" ]; then
+  DEFAULT_SEGMENT_LIST="2 5"
+else
+  DEFAULT_SEGMENT_LIST="2 5 10"
+fi
+
+SEGMENT_LIST="${SEGMENT_LIST:-${DEFAULT_SEGMENT_LIST}}"
+TEST_SET="${TEST_SET:-${DEFAULT_TEST_SET}}"
+EVAL_SETS="${EVAL_SETS:-${DEFAULT_EVAL_SETS}}"
+INSTRUMENT_NAME="${INSTRUMENT_NAME:-${SFPROXY_INSTRUMENT_NAME_DEFAULT}}"
+SFPROXY_DATASET_NAME="${SFPROXY_DATASET_NAME:-${SFPROXY_DATASET_NAME_DEFAULT}}"
+SFPROXY_CKPT_ROOT="${SFPROXY_CKPT_ROOT:-${DATA_ROOT}/synth-proxy/proxy/checkpoints/${INSTRUMENT_NAME}}"
+
 sampler_preset() {
   case "$1" in
     coverage|coverage_v2) echo "coverage_v2" ;;
     mixed|mixed_v2) echo "mixed_v2" ;;
     realism|realism_v2) echo "realism_v2" ;;
+    stress|stress_v2) echo "stress_v2" ;;
     *) return 1 ;;
   esac
-}
-
-has_hdf5() {
-  find "$1" -type f -name '*.h5' -print -quit 2>/dev/null | grep -q .
 }
 
 resolve_sfproxy_ckpt() {
   local sampler="$1"
   local segment="$2"
-  local seg_tag="${segment%.0}s"
+  local seg_tag
   local preset
   local dir
   local latest
+
+  seg_tag="$(score_hpt_segment_tag "${segment}")"
   preset="$(sampler_preset "${sampler}")" || return 0
-  for dir in "${SFPROXY_CKPT_ROOT}"/piano_"${INSTRUMENT_NAME}"_"${preset}"*_"${seg_tag}"_"${BOUNDARY_MODE}"; do
+
+  for dir in "${SFPROXY_CKPT_ROOT}"/"${SFPROXY_DATASET_NAME}"_"${INSTRUMENT_NAME}"_"${preset}"*_"${seg_tag}"_"${BOUNDARY_MODE}"; do
     [ -d "${dir}" ] || continue
     latest="$(find "${dir}" -maxdepth 1 -type f -name '*last*.ckpt' | sort -V | tail -n 1)"
     [ -n "${latest}" ] && printf '%s\n' "${latest}" && return 0
@@ -71,11 +83,6 @@ if [ ! -d "${PROJECT_ROOT}" ]; then
   exit 1
 fi
 
-if [ ! -f "${MAESTRO_DIR}/maestro-v3.0.0.csv" ]; then
-  echo "MAESTRO metadata file not found under: ${MAESTRO_DIR}" >&2
-  exit 1
-fi
-
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   echo "${PYTHON_BIN} not found in PATH. Please activate the correct environment first." >&2
   exit 1
@@ -83,37 +90,40 @@ fi
 
 cd "${PROJECT_DIR}"
 
-HDF5_DIR="${WORKSPACE_DIR}/hdf5s/maestro_sr22050"
-if [ ! -d "${HDF5_DIR}" ] || ! has_hdf5 "${HDF5_DIR}"; then
-  echo "Packed MAESTRO HDF5 dataset not found. Running preprocessing first."
-  "${PYTHON_BIN}" pytorch/data_generator.py pack_maestro_dataset_to_hdf5 \
-    "exp.workspace=${WORKSPACE_DIR}" \
-    "feature.sample_rate=22050" \
-    "dataset.maestro_dir=${MAESTRO_DIR}"
-fi
+required_datasets=("${TRAIN_SET}" "${TEST_SET}")
+while IFS= read -r dataset_name; do
+  required_datasets+=("${dataset_name}")
+done < <(score_hpt_collect_eval_datasets "${EVAL_SETS}")
+
+score_hpt_prepare_required_datasets "${PYTHON_BIN}" "${required_datasets[@]}"
+score_hpt_set_dataset_profile "${TRAIN_SET}"
 
 run_one() {
   local segment="$1"
   local sampler="$2"
   local ckpt="$3"
   local loss="$4"
-  local seg_tag="${segment%.0}"
+  local seg_tag
+
+  seg_tag="$(score_hpt_segment_tag "${segment}")"
 
   echo "============================================================"
   echo "Route IV ablation"
-  echo "Dataset           : maestro"
+  echo "Train set         : ${TRAIN_SET}"
+  echo "Test set          : ${TEST_SET}"
   echo "Proxy checkpoint  : ${ckpt}"
   echo "Backend seg (s)   : ${segment}"
   echo "Sampler           : ${sampler}"
   echo "Proxy loss        : ${loss}"
+  echo "Instrument name   : ${INSTRUMENT_NAME}"
   echo "============================================================"
 
   "${PYTHON_BIN}" pytorch/train_proxy.py \
     "exp.workspace=${WORKSPACE_DIR}" \
     "exp.batch_size=${BATCH_SIZE}" \
-    "dataset.train_set=maestro" \
-    "dataset.test_set=maestro" \
-    "dataset.eval_sets=[train,maestro]" \
+    "dataset.train_set=${TRAIN_SET}" \
+    "dataset.test_set=${TEST_SET}" \
+    "dataset.eval_sets=${EVAL_SETS}" \
     "model.type=hpt" \
     "model.input2=onset" \
     "model.input3=frame" \
@@ -132,7 +142,7 @@ run_one() {
     "proxy.sfproxy.loss_type=${loss}" \
     "proxy.sfproxy.use_gt_aligned_note_events=true" \
     "proxy.sfproxy.feature.hop=221" \
-    "wandb.comment=route4_maestro_${sampler}_${seg_tag}s_${loss}" \
+    "wandb.comment=route4_${TRAIN_SET}_${sampler}_${seg_tag}_${loss}" \
     "${extra_args[@]}"
 }
 
