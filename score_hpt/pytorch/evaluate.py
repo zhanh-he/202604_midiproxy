@@ -231,13 +231,23 @@ class SegmentEvaluator(object):
             return ["onset"] + ([self.input3] if self.input3 else [])
         return cond_selected
 
+    def _base_model_input(self, batch_data_dict, device):
+        if str(self.cfg.model.type) not in {"filmunet", "filmunet_pretrained"}:
+            return None
+        if getattr(self.cfg.model, "kim_condition", "frame") != "frame":
+            return None
+        if "frame_roll" not in batch_data_dict:
+            return None
+        return move_data_to_device(batch_data_dict["frame_roll"], device)
+
     def _forward_score_inf(self, batch_data_dict, device):
         audio = move_data_to_device(batch_data_dict["waveform"], device)
         cond = {k: move_data_to_device(batch_data_dict[f"{k}_roll"], device) for k in self.score_cond_keys}
+        base_input = self._base_model_input(batch_data_dict, device)
 
         with torch.no_grad():
             self.model.eval()
-            out = self.model(audio, cond)
+            out = self.model(audio, cond, base_input) if base_input is not None else self.model(audio, cond)
 
         if "velocity_output" not in out and "vel_corr" in out:
             out = dict(out)

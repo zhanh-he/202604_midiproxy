@@ -89,7 +89,9 @@ def _compose_cfg(default_overrides):
 def _select_velocity_metrics(statistics):
     keep_keys = (
         "frame_max_error",
+        "frame_max_std",
         "onset_masked_error",
+        "onset_masked_std",
         "real_pred_bssl_pearson_correlation",
         "real_pred_bstl_pearson_correlation",
     )
@@ -299,6 +301,16 @@ def _prepare_batch(
     return audio, cond, batch_torch
 
 
+def _base_model_input(cfg, batch_data_dict, device: torch.device):
+    if str(cfg.model.type) not in {"filmunet", "filmunet_pretrained"}:
+        return None
+    if getattr(cfg.model, "kim_condition", "frame") != "frame":
+        return None
+    if "frame_roll" not in batch_data_dict:
+        return None
+    return move_data_to_device(batch_data_dict["frame_roll"], device)
+
+
 def train(cfg):
     device = torch.device("cuda") if cfg.exp.cuda and torch.cuda.is_available() else torch.device("cpu")
 
@@ -394,7 +406,8 @@ def train(cfg):
 
         model.train()
         audio, cond, batch_torch = _prepare_batch(batch_data_dict, device, cond_keys, target_rolls)
-        out = model(audio, cond)
+        base_input = _base_model_input(cfg, batch_data_dict, device)
+        out = model(audio, cond, base_input) if base_input is not None else model(audio, cond)
         loss = loss_fn(cfg, out, batch_torch, cond_dict=cond)
 
         # Avoid CUDA tensor repr path in print(), which can mask the real kernel error.

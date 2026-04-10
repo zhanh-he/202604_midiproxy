@@ -141,18 +141,21 @@ def log_velocity_rolls(cfg, iteration, batch_output_dict, batch_data_dict):
         return
 
     velocity_scale = getattr(cfg.feature, "velocity_scale", 128)
-    pred_img = pred[0].detach().cpu().numpy()
+    pred_img = pred[0].detach().cpu().numpy() if torch.is_tensor(pred) else np.asarray(pred[0])
     pred_max = float(np.max(pred_img))
     pred_min = float(np.min(pred_img))
     if pred_max > 1.0 + 1e-3 or pred_min < -1e-3:
         pred_vis = np.clip(pred_img / velocity_scale, 0.0, 1.0)
     else:
         pred_vis = np.clip(pred_img, 0.0, 1.0)
-    target_raw = target[0].detach().cpu().numpy()
+    target_raw = target[0].detach().cpu().numpy() if torch.is_tensor(target) else np.asarray(target[0])
     if float(np.max(target_raw)) <= 1.0 + 1e-3:
         target_raw = target_raw * velocity_scale
     target_img = np.clip(target_raw / velocity_scale, 0.0, 1.0)
-    onset_roll = onset[0].detach().cpu().numpy() if onset is not None else np.zeros_like(target_raw)
+    if onset is None:
+        onset_roll = np.zeros_like(target_raw)
+    else:
+        onset_roll = onset[0].detach().cpu().numpy() if torch.is_tensor(onset) else np.asarray(onset[0])
 
     frame_pick_img, onset_pick_img = _post_process_rolls(
         pred_vis=pred_vis,

@@ -156,6 +156,8 @@ def _select_velocity_metrics(statistics):
         "frame_max_std",
         "onset_masked_error",
         "onset_masked_std",
+        "real_pred_bssl_pearson_correlation",
+        "real_pred_bstl_pearson_correlation",
     )
     return {k: statistics[k] for k in keep_keys if k in statistics}
 
@@ -393,6 +395,16 @@ def _prepare_batch(
     return audio, cond, batch_torch
 
 
+def _base_model_input(cfg, batch_data_dict, device: torch.device):
+    if str(cfg.model.type) not in {"filmunet", "filmunet_pretrained"}:
+        return None
+    if getattr(cfg.model, "kim_condition", "frame") != "frame":
+        return None
+    if "frame_roll" not in batch_data_dict:
+        return None
+    return move_data_to_device(batch_data_dict["frame_roll"], device)
+
+
 
 def _tensor_to_float(value) -> float:
     if value is None:
@@ -415,6 +427,45 @@ def _average_meter(meter: Dict[str, float], steps: int) -> Dict[str, float]:
     if steps <= 0:
         return {}
     return {key: value / float(steps) for key, value in meter.items()}
+
+
+SUMMARY_ONLY_PROXY_KEYS = {
+    "proxy_loss_sample_rate",
+    "proxy_loss_frame_rate",
+    "proxy_proxy_frames",
+    "proxy_proxy_polyphony",
+    "proxy_renderer_sample_rate",
+    "proxy_renderer_frame_rate",
+    "proxy_renderer_segment_seconds",
+    "proxy_synth_input_source_fps",
+    "proxy_renderer_hop_length",
+    "proxy_renderer_n_fft",
+    "proxy_native_segment_seconds",
+}
+
+
+def _append_training_log(
+    checkpoints_dir: str,
+    iteration: int,
+    train_stats: Dict[str, float],
+    eval_stats: Dict[str, Dict[str, float]],
+    summary_stats: Dict[str, float],
+) -> None:
+    lines = [f"[iteration {iteration}]"]
+    if train_stats:
+        train_line = ", ".join(f"{key}={value:.6f}" for key, value in sorted(train_stats.items()))
+        lines.append(f"train: {train_line}")
+    for eval_name, metrics in sorted(eval_stats.items()):
+        if not metrics:
+            continue
+        metric_line = ", ".join(f"{key}={value:.6f}" for key, value in sorted(metrics.items()))
+        lines.append(f"eval/{eval_name}: {metric_line}")
+    if summary_stats:
+        summary_line = ", ".join(f"{key}={value:.6f}" for key, value in sorted(summary_stats.items()))
+        lines.append(f"summary: {summary_line}")
+
+    with open(os.path.join(checkpoints_dir, "training.log"), "a") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 
@@ -554,7 +605,8 @@ def train(cfg):
         optimizer.zero_grad(set_to_none=True)
         model.train()
         audio, cond, batch_torch = _prepare_batch(batch_data_dict, device, cond_keys, target_rolls)
-        out = model(audio, cond)
+        base_input = _base_model_input(cfg, batch_data_dict, device)
+        out = model(audio, cond, base_input) if base_input is not None else model(audio, cond)
 
         total_loss = out["vel_corr"].new_tensor(0.0)
         step_stats: Dict[str, Any] = {}
@@ -582,6 +634,8 @@ def train(cfg):
             for key, value in proxy_stats.items():
                 if key == "proxy_loss":
                     continue
+                if key.startswith("spectral_mag_") or key.startswith("spectral_logmag_"):
+                    continue
                 if torch.is_tensor(value) and value.ndim == 0:
                     step_stats[f"proxy_{key}"] = value.detach()
 
@@ -595,7 +649,7 @@ def train(cfg):
         _update_meter(train_meter, step_stats)
         train_loss_steps += 1
 
-        log_velocity_rolls(cfg, iteration, {"velocity_output": out["vel_corr"]}, batch_torch)
+        log_velocity_rolls(cfg, iteration, {"velocity_output": out["vel_corr"]}, batch_data_dict)
 
         total_loss.backward()
         optimizer.step()
@@ -609,16 +663,20 @@ def train(cfg):
             logging.info(f"Iteration: {iteration}/{cfg.exp.total_iteration}")
             train_fin_time = time.time()
             avg_train_stats = _average_meter(train_meter, train_loss_steps)
+            eval_stats_all = {}
 
             if avg_train_stats:
                 logging.info(f"    Train Losses: {_select_console_train_losses(avg_train_stats)}")
 
             log_payload: Dict[str, Any] = {"iteration": iteration}
+            summary_updates = {
+                key: value for key, value in avg_train_stats.items() if key in SUMMARY_ONLY_PROXY_KEYS
+            }
             for key, value in avg_train_stats.items():
-                log_payload[f"train_{key}"] = value
+                if key not in SUMMARY_ONLY_PROXY_KEYS:
+                    log_payload[f"train_{key}"] = value
 
             if evaluator is not None:
-                eval_stats_all = {}
                 for eval_name, loader in eval_loaders.items():
                     eval_stats = _select_velocity_metrics(evaluator.evaluate(loader))
                     eval_stats_all[eval_name] = eval_stats
@@ -627,6 +685,15 @@ def train(cfg):
                     log_payload[payload_key] = eval_stats
 
             wandb.log(log_payload)
+            for key, value in summary_updates.items():
+                wandb.summary[key] = value
+            _append_training_log(
+                checkpoints_dir=checkpoints_dir,
+                iteration=iteration,
+                train_stats=avg_train_stats,
+                eval_stats=eval_stats_all,
+                summary_stats=summary_updates,
+            )
 
             train_time = train_fin_time - train_bgn_time
             validate_time = time.time() - train_fin_time
