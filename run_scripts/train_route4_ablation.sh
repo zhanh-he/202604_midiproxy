@@ -7,10 +7,9 @@ ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 PROJECT_DIR="${ROOT_DIR}/score_hpt"
-PROJECT_ROOT="${PROJECT_ROOT:-${ROOT_DIR}/synth-proxy}"
+PROJECT_ROOT="${ROOT_DIR}/synth-proxy"
 
-TRAIN_SET="${TRAIN_SET:-${DATASET:-maestro}}"
-BOUNDARY_MODE="${BOUNDARY_MODE:-default}"
+TRAIN_SET="${TRAIN_SET:-maestro}"
 SAMPLERS="${SAMPLERS:-coverage mixed realism}"
 LOSS_TYPES="${LOSS_TYPES:-smooth_l1 l1 mse}"
 PROXY_CKPT="${PROXY_CKPT:-${1:-}}"
@@ -19,9 +18,8 @@ SCORE_METHOD="${SCORE_METHOD:-note_editor}"
 PRETRAINED_CHECKPOINT="${PRETRAINED_CHECKPOINT:-}"
 
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
-BACKEND_WEIGHT="${BACKEND_WEIGHT:-${PROXY_WEIGHT:-1.0}}"
+BACKEND_WEIGHT="${BACKEND_WEIGHT:-1.0}"
 PRIOR_WEIGHT="${PRIOR_WEIGHT:-0.0}"
-WARMUP_ITERS="${WARMUP_ITERS:-0}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
 score_hpt_init_context
@@ -34,11 +32,10 @@ else
 fi
 
 SEGMENT_LIST="${SEGMENT_LIST:-${DEFAULT_SEGMENT_LIST}}"
-TEST_SET="${TEST_SET:-${DEFAULT_TEST_SET}}"
-EVAL_SETS="${EVAL_SETS:-${DEFAULT_EVAL_SETS}}"
-INSTRUMENT_NAME="${INSTRUMENT_NAME:-${SFPROXY_INSTRUMENT_NAME_DEFAULT}}"
-SFPROXY_DATASET_NAME="${SFPROXY_DATASET_NAME:-${SFPROXY_DATASET_NAME_DEFAULT}}"
-SFPROXY_CKPT_ROOT="${SFPROXY_CKPT_ROOT:-${DATA_ROOT}/synth-proxy/proxy/checkpoints/${INSTRUMENT_NAME}}"
+BOUNDARY_MODE="default"
+INSTRUMENT_NAME="${SFPROXY_INSTRUMENT_NAME_DEFAULT}"
+SFPROXY_DATASET_NAME="${SFPROXY_DATASET_NAME_DEFAULT}"
+SFPROXY_CKPT_ROOT="${DATA_ROOT}/synth-proxy/proxy/checkpoints/${INSTRUMENT_NAME}"
 
 sampler_preset() {
   case "$1" in
@@ -97,10 +94,10 @@ fi
 
 cd "${PROJECT_DIR}"
 
-required_datasets=("${TRAIN_SET}" "${TEST_SET}")
+required_datasets=("${TRAIN_SET}" "${DEFAULT_TEST_SET}")
 while IFS= read -r dataset_name; do
   required_datasets+=("${dataset_name}")
-done < <(score_hpt_collect_eval_datasets "${EVAL_SETS}")
+done < <(score_hpt_collect_eval_datasets "${DEFAULT_EVAL_SETS}")
 
 score_hpt_prepare_required_datasets "${PYTHON_BIN}" "${required_datasets[@]}"
 score_hpt_set_dataset_profile "${TRAIN_SET}"
@@ -110,11 +107,9 @@ run_one() {
   local sampler="$2"
   local ckpt="$3"
   local loss="$4"
-  local seg_tag
   local score_method
   local model_input2
 
-  seg_tag="$(score_hpt_segment_tag "${segment}")"
   score_method="${SCORE_METHOD}"
   if [ "${MODEL_TYPE}" = "filmunet" ]; then
     score_method="direct"
@@ -134,7 +129,7 @@ run_one() {
   echo "============================================================"
   echo "Route IV ablation"
   echo "Train set         : ${TRAIN_SET}"
-  echo "Test set          : ${TEST_SET}"
+  echo "Test set          : ${DEFAULT_TEST_SET}"
   echo "Model             : ${MODEL_TYPE}"
   echo "Score method      : ${score_method}"
   echo "Proxy checkpoint  : ${ckpt}"
@@ -147,11 +142,10 @@ run_one() {
   "${PYTHON_BIN}" pytorch/train_proxy.py \
     "exp.workspace=${WORKSPACE_DIR}" \
     "dataset.train_set=${TRAIN_SET}" \
-    "dataset.test_set=${TEST_SET}" \
-    "dataset.eval_sets=${EVAL_SETS}" \
+    "dataset.test_set=${DEFAULT_TEST_SET}" \
+    "dataset.eval_sets=${DEFAULT_EVAL_SETS}" \
     "model.type=${MODEL_TYPE}" \
     "model.input2=${model_input2}" \
-    "model.input3=null" \
     "score_informed.method=${score_method}" \
     "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
     "loss.proxy_weight=${BACKEND_WEIGHT}" \
@@ -161,13 +155,8 @@ run_one() {
     "proxy.project_root=${PROJECT_ROOT}" \
     "proxy.checkpoint=${ckpt}" \
     "proxy.backend_segment_seconds=${segment}" \
-    "proxy.warmup_iterations=${WARMUP_ITERS}" \
-    "proxy.supervision.hop_size=221" \
     "proxy.sfproxy.instrument_name=${INSTRUMENT_NAME}" \
     "proxy.sfproxy.loss_type=${loss}" \
-    "proxy.sfproxy.use_gt_aligned_note_events=true" \
-    "proxy.sfproxy.feature.hop=221" \
-    "wandb.comment=${TRAIN_SET}_${sampler}_${seg_tag}_${loss}" \
     "${pretrained_args[@]}" \
     "${extra_args[@]}"
 }

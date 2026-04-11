@@ -12,17 +12,12 @@ DATA_DIR="${WORKSPACE_BASE}/synth-proxy/data"
 DEFAULT_INSTRUMENT="piano"
 DEFAULT_PIANO_DATASET="maestro"
 DEFAULT_GUITAR_DATASET="francoisleduc"
-DEFAULT_BOUNDARY_MODE="default"
 
 INSTRUMENT="${INSTRUMENT:-${DEFAULT_INSTRUMENT}}"
 PIANO_DATASET="${PIANO_DATASET:-${DEFAULT_PIANO_DATASET}}"
 GUITAR_DATASET="${GUITAR_DATASET:-${DEFAULT_GUITAR_DATASET}}"
-BOUNDARY_MODE="${BOUNDARY_MODE:-${DEFAULT_BOUNDARY_MODE}}"
 SEGMENT_SECONDS="${SEGMENT_SECONDS:-}"
 SEGMENT_LIST="${SEGMENT_LIST:-}"
-EXPORT_BATCH_SIZE="${EXPORT_BATCH_SIZE:-}"
-EXPORT_NUM_WORKERS="${EXPORT_NUM_WORKERS:-}"
-EXPORT_PREFETCH_FACTOR="${EXPORT_PREFETCH_FACTOR:-}"
 MIX_WEIGHTS="${MIX_WEIGHTS:-}"
 
 segment_tag() {
@@ -37,6 +32,7 @@ segment_tag() {
 
 sfproxy_set_profile "${INSTRUMENT}" "${PIANO_DATASET}" "${GUITAR_DATASET}"
 REALISM_STATS_JSON="${ANALYSIS_DIR}/stats/midi_sampler/${MIDI_DATASET}_sampler.json"
+BOUNDARY_MODE="default"
 
 segment_input="${SEGMENT_SECONDS:-${SEGMENT_LIST:-${DEFAULT_SEGMENTS}}}"
 read -r -a SEGMENTS <<< "${segment_input//,/ }"
@@ -55,44 +51,11 @@ if [[ -n "${MIX_WEIGHTS}" ]]; then
   )
 fi
 
-mkdir -p "${DATA_DIR}" "${ANALYSIS_DIR}/stats/sfproxy_boundaries"
+mkdir -p "${DATA_DIR}"
 cd "${ROOT_DIR}"
 
 for segment_seconds in "${SEGMENTS[@]}"; do
   tag="$(segment_tag "${segment_seconds}")"
-  boundary_json="${ANALYSIS_DIR}/stats/sfproxy_boundaries/${BOUNDARY_NAME}_boundaries.json"
-  boundary_overrides=()
-
-  case "${BOUNDARY_MODE}" in
-    default)
-      ;;
-    fixed)
-      boundary_overrides=("v2_boundary_path=''" "v2_boundary_strategy=global")
-      ;;
-    discovered)
-      boundary_json="${ANALYSIS_DIR}/stats/sfproxy_boundaries/${BOUNDARY_NAME}_${tag}_boundaries.json"
-      if [[ ! -f "${boundary_json}" ]]; then
-        python "${ROOT_DIR}/synth-proxy/src/tools/discover_velocity_boundaries.py" \
-          --instrument_path "${INSTRUMENT_PATH}" \
-          --instrument_name "${BOUNDARY_NAME}" \
-          --bank 0 \
-          --program 0 \
-          --sr 22050 \
-          --seg_len_s "${segment_seconds}" \
-          --pitch_min "${PITCH_MIN}" \
-          --pitch_max "${PITCH_MAX}" \
-          --pitch_step "${PITCH_STEP}" \
-          --register_splits "${REGISTER_SPLITS[@]}" \
-          --hop 221 \
-          --out_json "${boundary_json}"
-      fi
-      boundary_overrides=("v2_boundary_path=${boundary_json}")
-      ;;
-    *)
-      echo "Unsupported BOUNDARY_MODE='${BOUNDARY_MODE}'. Use default, fixed, or discovered." >&2
-      exit 1
-      ;;
-  esac
 
   for preset in "${PRESETS[@]}"; do
     case "${preset}" in
@@ -128,11 +91,7 @@ for segment_seconds in "${SEGMENTS[@]}"; do
         "sampler_preset=${preset}" \
         "boundary_mode=${BOUNDARY_MODE}" \
         "split=${split}" \
-        "reset_output_dir=true" \
-        ${EXPORT_BATCH_SIZE:+"batch_size=${EXPORT_BATCH_SIZE}"} \
-        ${EXPORT_NUM_WORKERS:+"num_workers=${EXPORT_NUM_WORKERS}"} \
-        ${EXPORT_PREFETCH_FACTOR:+"prefetch_factor=${EXPORT_PREFETCH_FACTOR}"} \
-        "${boundary_overrides[@]}"
+        "reset_output_dir=true"
     done
   done
 

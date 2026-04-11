@@ -69,11 +69,6 @@ def _clean_name_part(value) -> str:
 
 
 
-def _cond_suffix(cfg, method: str) -> str:
-    return ""
-
-
-
 def _proxy_objective_name(cfg) -> str:
     backend_type = normalize_backend_type(getattr(cfg.proxy, "type", "ddsp_piano"))
     if backend_type == "sfproxy":
@@ -130,24 +125,23 @@ def _loss_weight_suffix(cfg) -> str:
 
 
 def _train_wandb_name(cfg):
-    explicit_name = _clean_name_part(getattr(cfg.wandb, "name", ""))
-    if explicit_name:
-        return explicit_name
-
-    method = _method_name(cfg.score_informed.method)
-    prefix = "route4" if is_diffproxy_backend(getattr(cfg.proxy, "type", "")) else "route3"
-    train_set = _clean_name_part(getattr(cfg.dataset, "train_set", "")) or "train"
-    segment_tag = _backend_segment_tag(cfg)
-    name_parts = [prefix, train_set]
-    if segment_tag:
-        name_parts.append(segment_tag)
-    name_parts.extend([str(cfg.model.type), method])
-    name = (
-        f"{'-'.join(name_parts)}"
-        f"{_cond_suffix(cfg, method)}{_backend_suffix(cfg)}{_loss_weight_suffix(cfg)}"
-        f"-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
-    )
-    return name
+    name = _clean_name_part(getattr(cfg.wandb, "name", ""))
+    tag = _clean_name_part(getattr(cfg.wandb, "tag", ""))
+    if not name:
+        method = _method_name(cfg.score_informed.method)
+        prefix = "route4" if is_diffproxy_backend(getattr(cfg.proxy, "type", "")) else "route3"
+        train_set = _clean_name_part(getattr(cfg.dataset, "train_set", "")) or "train"
+        segment_tag = _backend_segment_tag(cfg)
+        name_parts = [prefix, train_set]
+        if segment_tag:
+            name_parts.append(segment_tag)
+        name_parts.extend([str(cfg.model.type), method])
+        name = (
+            f"{'-'.join(name_parts)}"
+            f"{_backend_suffix(cfg)}{_loss_weight_suffix(cfg)}"
+            f"-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
+        )
+    return f"{name}-{tag}" if tag else name
 
 
 
@@ -155,10 +149,12 @@ def init_wandb(cfg):
     """Initialize WandB for experiment tracking if configured."""
     if not hasattr(cfg, "wandb"):
         return
+    tag = _clean_name_part(getattr(cfg.wandb, "tag", ""))
     wandb.init(
         project=cfg.wandb.project,
         name=_train_wandb_name(cfg),
         config=OmegaConf.to_container(cfg, resolve=True),
+        tags=[tag] if tag else None,
     )
 
 

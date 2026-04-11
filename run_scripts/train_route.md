@@ -30,11 +30,12 @@ Common:
 - `PRIOR_WEIGHT`
 - `EXTRA_OVERRIDES`
 
+The scripts keep test/eval split selection and backend path resolution inside the script/profile layer.
+
 Route III:
 
 - `SEGMENT_LIST`
 - `LOSS_TYPES`
-- `DDSP_CKPTS`
 
 Route IV:
 
