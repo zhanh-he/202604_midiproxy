@@ -1,0 +1,16 @@
+{"time":"2026-04-12T00:35:06.937058568+10:00","level":"INFO","msg":"stream: starting","core version":"0.19.3","symlink path":"/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/wandb/run-20260412_003506-qj3vs8c2/logs/debug-core.log"}
+{"time":"2026-04-12T00:35:07.041641403+10:00","level":"INFO","msg":"created new stream","id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:07.04168703+10:00","level":"INFO","msg":"stream: started","id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:07.0417191+10:00","level":"INFO","msg":"writer: Do: started","stream_id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:07.041754277+10:00","level":"INFO","msg":"sender: started","stream_id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:07.041728488+10:00","level":"INFO","msg":"handler: started","stream_id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:07.412450309+10:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-04-12T00:35:53.463488982+10:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-04-12T00:35:53.46387405+10:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-04-12T00:35:54.464200481+10:00","level":"INFO","msg":"handler: operation stats","stats":{"operations":[{"desc":"uploading wandb-summary.json","runtime_seconds":0.731914077,"progress":"1.1KB/1.1KB"},{"desc":"uploading config.yaml","runtime_seconds":0.43996785,"progress":"11.0KB/11.0KB"}],"total_operations":2}}
+{"time":"2026-04-12T00:35:55.055844917+10:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-04-12T00:35:56.404499812+10:00","level":"INFO","msg":"stream: closing","id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:56.404619859+10:00","level":"INFO","msg":"handler: closed","stream_id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:56.404629337+10:00","level":"INFO","msg":"writer: Close: closed","stream_id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:56.404682578+10:00","level":"INFO","msg":"sender: closed","stream_id":"qj3vs8c2"}
+{"time":"2026-04-12T00:35:56.404741359+10:00","level":"INFO","msg":"stream: closed","id":"qj3vs8c2"}

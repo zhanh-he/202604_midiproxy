@@ -78,7 +78,6 @@ echo "Proxy audio loss : $AUDIO_LOSS"
 echo "DDSP checkpoint  : $DDSP_CKPT"
 
 python pytorch/train_ddsp.py \
-  exp.batch_size=4 \
   dataset.train_set=maestro \
   dataset.test_set=maestro \
   'dataset.eval_sets=[train,maestro,smd]' \

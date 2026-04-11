@@ -1,0 +1,15 @@
+{"time":"2026-04-12T00:31:15.156832443+10:00","level":"INFO","msg":"stream: starting","core version":"0.19.3","symlink path":"/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/wandb/run-20260412_003114-codbypoo/logs/debug-core.log"}
+{"time":"2026-04-12T00:31:15.26085125+10:00","level":"INFO","msg":"created new stream","id":"codbypoo"}
+{"time":"2026-04-12T00:31:15.26089348+10:00","level":"INFO","msg":"stream: started","id":"codbypoo"}
+{"time":"2026-04-12T00:31:15.260906675+10:00","level":"INFO","msg":"writer: Do: started","stream_id":"codbypoo"}
+{"time":"2026-04-12T00:31:15.260940569+10:00","level":"INFO","msg":"handler: started","stream_id":"codbypoo"}
+{"time":"2026-04-12T00:31:15.260921112+10:00","level":"INFO","msg":"sender: started","stream_id":"codbypoo"}
+{"time":"2026-04-12T00:31:15.771793182+10:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-04-12T00:31:46.544334978+10:00","level":"INFO","msg":"stream: closing","id":"codbypoo"}
+{"time":"2026-04-12T00:31:46.544350307+10:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-04-12T00:31:46.544734584+10:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-04-12T00:31:47.999011888+10:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-04-12T00:31:48.285764887+10:00","level":"INFO","msg":"handler: closed","stream_id":"codbypoo"}
+{"time":"2026-04-12T00:31:48.285819711+10:00","level":"INFO","msg":"writer: Close: closed","stream_id":"codbypoo"}
+{"time":"2026-04-12T00:31:48.285847023+10:00","level":"INFO","msg":"sender: closed","stream_id":"codbypoo"}
+{"time":"2026-04-12T00:31:48.286172448+10:00","level":"INFO","msg":"stream: closed","id":"codbypoo"}

@@ -173,7 +173,6 @@ Common knobs:
 - `TRAIN_SET`: `maestro`, `smd`, `francoisleduc`, `gaps`
 - `MODEL_TYPE`: `hpt`, `filmunet`, `hpt_pretrained`, or `filmunet_pretrained`
 - `SEGMENT_LIST`: backend crop length sweep for ablation scripts
-- `BATCH_SIZE`: train batch size
 - `SUPERVISED_WEIGHT`: Route II-style supervised loss weight
 - `BACKEND_WEIGHT`: backend loss weight
 - `EXTRA_OVERRIDES`: additional Hydra overrides appended at the end of the command
@@ -196,26 +195,25 @@ Route IV specific:
 
 ## Batch Size
 
-There are two different defaults to keep in mind.
+Train batch size is now controlled only by Hydra config.
 
-- global config default: `exp.batch_size=12`
-- current Route III / IV ablation script default: `BATCH_SIZE=4`
+- default config value: `exp.batch_size=12`
 
-So when you launch through [`train_route3_ablation.sh`](/media/mengh/SharedData/zhanh/202604_midiproxy/run_scripts/train_route3_ablation.sh) or [`train_route4_ablation.sh`](/media/mengh/SharedData/zhanh/202604_midiproxy/run_scripts/train_route4_ablation.sh), the effective batch size is currently `4`, not `12`.
+That means [`train_route3_ablation.sh`](/media/mengh/SharedData/zhanh/202604_midiproxy/run_scripts/train_route3_ablation.sh), [`train_route4_ablation.sh`](/media/mengh/SharedData/zhanh/202604_midiproxy/run_scripts/train_route4_ablation.sh), and the Kaya training scripts no longer override `exp.batch_size`.
 
-If your local 3090 / 5090 still has a lot of free memory, the simplest way to test a larger batch is:
+If you want to change it, edit [`config.yaml`](/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/pytorch/config/config.yaml#L26) or pass a direct Hydra override yourself.
 
 ```bash
-TRAIN_SET=maestro BATCH_SIZE=6 bash run_scripts/train_route3_ablation.sh
+TRAIN_SET=maestro EXTRA_OVERRIDES="exp.batch_size=6" bash run_scripts/train_route3_ablation.sh
 ```
 
 or
 
 ```bash
-TRAIN_SET=maestro BATCH_SIZE=8 bash run_scripts/train_route4_ablation.sh
+TRAIN_SET=maestro EXTRA_OVERRIDES="exp.batch_size=8" bash run_scripts/train_route4_ablation.sh
 ```
 
-I would increase conservatively in the order `4 -> 6 -> 8`, because Route III and Route IV can have different backend-side memory spikes.
+I would still increase conservatively in the order `4 -> 6 -> 8`, because Route III and Route IV can have different backend-side memory spikes.
 
 ## Local BSSL / BSTL Evaluation
 
@@ -447,3 +445,8 @@ The following backend constants are intentionally removed from wandb charts. The
 - `backend_renderer_hop_length`
 - `backend_renderer_n_fft`
 - `backend_native_segment_seconds`
+
+Current command:
+```bash
+TRAIN_SET=maestro SEGMENT_LIST="2 5" MODEL_TYPE=filmunet EXTRA_OVERRIDES="train_eval.audio_metrics.enabled=true train_eval.audio_metrics.instrument_path=/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz" bash run_scripts/train_route4_ablation.sh
+```

@@ -1,0 +1,42 @@
+root        : INFO     Number of GPUs available: 1
+root        : INFO     Train phase switched to: joint at iteration 0
+iter 0 total_loss 3.136571 backend_loss 3.136571
+root        : INFO     ------------------------------------
+root        : INFO     Iteration: 0/20
+root        : INFO         Train Losses: {'total_loss': 3.136570930480957, 'backend_loss': 3.136570930480957}
+root        : INFO         Eval train: {'frame_max_error': 16.0563, 'frame_max_std': 11.1178, 'onset_masked_error': 19.1378, 'onset_masked_std': 13.4048}
+root        : INFO         Eval maestro: {'frame_max_error': 14.5017, 'frame_max_std': 10.6705, 'onset_masked_error': 18.0517, 'onset_masked_std': 12.7766}
+root        : INFO         Eval smd: {'frame_max_error': 15.6469, 'frame_max_std': 11.5209, 'onset_masked_error': 17.9002, 'onset_masked_std': 12.366}
+root        : INFO     Train time: 3.748 s, validate time: 11.416 s
+root        : INFO     Model saved to /media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces/checkpoints/filmunet+onset+frame+score_note_editor+backend_diffproxy+l1+sup0+backend1/0_iterations.pth
+iter 1 total_loss 3.383574 backend_loss 3.383574
+iter 2 total_loss 3.002818 backend_loss 3.002818
+iter 3 total_loss 3.190018 backend_loss 3.190018
+iter 4 total_loss 2.601036 backend_loss 2.601036
+iter 5 total_loss 2.462238 backend_loss 2.462238
+iter 6 total_loss 3.163613 backend_loss 3.163613
+iter 7 total_loss 2.269888 backend_loss 2.269888
+iter 8 total_loss 2.210244 backend_loss 2.210244
+iter 9 total_loss 2.193616 backend_loss 2.193616
+iter 10 total_loss 2.727677 backend_loss 2.727677
+root        : INFO     ------------------------------------
+root        : INFO     Iteration: 10/20
+root        : INFO         Train Losses: {'total_loss': 2.7204721450805662, 'backend_loss': 2.7204721450805662}
+root        : INFO         Eval train: {'frame_max_error': 25.3389, 'frame_max_std': 17.5198, 'onset_masked_error': 26.4373, 'onset_masked_std': 18.0626}
+root        : INFO         Eval maestro: {'frame_max_error': 25.1107, 'frame_max_std': 16.7097, 'onset_masked_error': 25.5962, 'onset_masked_std': 17.0827}
+root        : INFO         Eval smd: {'frame_max_error': 27.9915, 'frame_max_std': 18.0218, 'onset_masked_error': 27.4864, 'onset_masked_std': 18.3341}
+root        : INFO     Train time: 3.071 s, validate time: 11.799 s
+root        : INFO     Model saved to /media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces/checkpoints/filmunet+onset+frame+score_note_editor+backend_diffproxy+l1+sup0+backend1/10_iterations.pth
+iter 11 total_loss 2.297357 backend_loss 2.297357
+iter 12 total_loss 1.778709 backend_loss 1.778709
+iter 13 total_loss 1.873437 backend_loss 1.873437
+iter 14 total_loss 2.305215 backend_loss 2.305215
+iter 15 total_loss 2.035723 backend_loss 2.035723
+iter 16 total_loss 1.925470 backend_loss 1.925470
+iter 17 total_loss 2.082311 backend_loss 2.082311
+iter 18 total_loss 2.161103 backend_loss 2.161103
+iter 19 total_loss 2.803181 backend_loss 2.803181
+iter 20 total_loss 2.527330 backend_loss 2.527330
+root        : INFO     ------------------------------------
+root        : INFO     Iteration: 20/20
+root        : INFO         Train Losses: {'total_loss': 2.178983676433563, 'backend_loss': 2.178983676433563}

@@ -11,7 +11,6 @@ PROJECT_DIR="${ROOT_DIR}/score_hpt"
 TRAIN_SET="${TRAIN_SET:-${GUITAR_DATASET:-francoisleduc}}"
 SEGMENT_SECONDS="${SEGMENT_SECONDS:-5}"
 
-BATCH_SIZE="${BATCH_SIZE:-4}"
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
 PROXY_WEIGHT="${PROXY_WEIGHT:-1.0}"
 PRIOR_WEIGHT="${PRIOR_WEIGHT:-0.0}"
@@ -62,7 +61,6 @@ score_hpt_set_dataset_profile "${TRAIN_SET}"
 
 "${PYTHON_BIN}" pytorch/train_ddsp.py \
   "exp.workspace=${WORKSPACE_DIR}" \
-  "exp.batch_size=${BATCH_SIZE}" \
   "dataset.train_set=${TRAIN_SET}" \
   "dataset.test_set=${TEST_SET}" \
   "dataset.eval_sets=${EVAL_SETS}" \

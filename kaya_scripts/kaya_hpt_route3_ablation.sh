@@ -185,7 +185,6 @@ fi
 
 python pytorch/train_ddsp.py \
   exp.workspace="$WORKSPACE_DIR" \
-  exp.batch_size=4 \
   dataset.train_set=maestro \
   dataset.test_set=maestro \
   'dataset.eval_sets=[train,maestro,smd]' \

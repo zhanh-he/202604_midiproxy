@@ -20,3 +20,4 @@ config: {'wandb': {'project': '202604_sfproxy', 'name': '', 'comment': 'maestro_
 2026-04-12 00:04:31,585 INFO    MainThread:1528568 [wandb_run.py:_redirect():2335] Wrapping output streams.
 2026-04-12 00:04:31,585 INFO    MainThread:1528568 [wandb_run.py:_redirect():2360] Redirects installed.
 2026-04-12 00:04:31,586 INFO    MainThread:1528568 [wandb_init.py:init():983] run started, returning control to user process
+2026-04-12 00:24:29,159 WARNING MsgRouterThr:1528568 [router.py:message_loop():75] message_loop has been closed

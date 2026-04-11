@@ -1,0 +1,35 @@
+root        : INFO     Number of GPUs available: 1
+root        : INFO     Train phase switched to: joint at iteration 0
+iter 0 total_loss 1.828843 backend_loss 1.828843
+root        : INFO     ------------------------------------
+root        : INFO     Iteration: 0/20
+root        : INFO         Train Losses: {'total_loss': 1.828843355178833, 'backend_loss': 1.828843355178833}
+root        : INFO         Eval train: {'frame_max_error': 16.8928, 'frame_max_std': 12.3072, 'onset_masked_error': 17.9841, 'onset_masked_std': 13.0266, 'real_pred_bssl_pearson_correlation': 0.8281, 'real_pred_bstl_pearson_correlation': 0.826}
+Traceback (most recent call last):
+  File "/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/pytorch/train_proxy.py", line 25, in <module>
+    train_backend(cfg)
+  File "/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/pytorch/train_backend.py", line 699, in train
+    eval_stats = _select_velocity_metrics(evaluator.evaluate(loader))
+                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/pytorch/evaluate.py", line 280, in evaluate
+    for batch_data_dict in dataloader:
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/site-packages/torch/utils/data/dataloader.py", line 732, in __next__
+    data = self._next_data()
+           ^^^^^^^^^^^^^^^^^
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/site-packages/torch/utils/data/dataloader.py", line 1470, in _next_data
+    self._shutdown_workers()
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/site-packages/torch/utils/data/dataloader.py", line 1618, in _shutdown_workers
+    w.join(timeout=_utils.MP_STATUS_CHECK_INTERVAL)
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/multiprocessing/process.py", line 149, in join
+    res = self._popen.wait(timeout)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/multiprocessing/popen_fork.py", line 40, in wait
+    if not wait([self.sentinel], timeout):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/multiprocessing/connection.py", line 948, in wait
+    ready = selector.select(timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mengh/miniconda3/envs/dynest/lib/python3.11/selectors.py", line 415, in select
+    fd_event_list = self._selector.poll(timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

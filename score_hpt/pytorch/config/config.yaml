@@ -1,5 +1,5 @@
 wandb:
-  project: "202604_sfproxy"
+  project: "202604_sfproxy_trial"
   name: ""
   comment: "mel229"
 
@@ -9,9 +9,9 @@ exp:
   workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
   # workspace: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/score_hpt/workspaces"
 
-  total_iteration: 20_000  # 120_000 # 300_000 # 360_000
-  save_iteration: 5_000    # 6_000 # 10_000
-  eval_iteration: 5_000    # 6_000 # 6_000
+  total_iteration: 20 #20_000  # 120_000 # 300_000 # 360_000
+  save_iteration: 10 #5_000    # 6_000 # 10_000
+  eval_iteration: 10 #5_000    # 6_000 # 6_000
 
   optim: "adam"             # "adam" | "adamw" | "ranger"
   learnrate: 1e-4           # 3e-4 # 1e-4
@@ -23,7 +23,7 @@ exp:
   mini_data: False # True when developing model
   cuda: True
   num_workers: 12 # 6 for Score Calculating
-  batch_size: 12
+  batch_size: 8 #12
 
   # Infer and Eval
   run_infer: 'single' # 'multi'
@@ -410,8 +410,8 @@ route2:
     gt_midi_dir: ""                   # required when manifest_mode=folder
     reference_audio_dir: ""           # required when audio_reference_mode=folder
     # instrument_path: ""
-    # instrument_path: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
-    instrument_path: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
+    instrument_path: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
+    # instrument_path: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
     split: "test"
     maps_pianos: "both"
     render_sr: 44100
