@@ -1,7 +1,0 @@
-{"time":"2026-04-12T06:27:30.825593229+10:00","level":"INFO","msg":"stream: starting","core version":"0.19.3","symlink path":"/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/wandb/run-20260412_062730-lx3mzewm/logs/debug-core.log"}
-{"time":"2026-04-12T06:27:30.929549242+10:00","level":"INFO","msg":"created new stream","id":"lx3mzewm"}
-{"time":"2026-04-12T06:27:30.929599257+10:00","level":"INFO","msg":"stream: started","id":"lx3mzewm"}
-{"time":"2026-04-12T06:27:30.929766303+10:00","level":"INFO","msg":"writer: Do: started","stream_id":"lx3mzewm"}
-{"time":"2026-04-12T06:27:30.929781171+10:00","level":"INFO","msg":"sender: started","stream_id":"lx3mzewm"}
-{"time":"2026-04-12T06:27:30.929792683+10:00","level":"INFO","msg":"handler: started","stream_id":"lx3mzewm"}
-{"time":"2026-04-12T06:27:31.42722121+10:00","level":"INFO","msg":"Starting system monitor"}
