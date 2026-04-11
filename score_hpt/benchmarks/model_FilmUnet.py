@@ -7,6 +7,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # Inject a lightweight torchlibrosa shim so the original FiLM code can import it.
 _VENDOR_ROOT = Path(__file__).resolve().parent
@@ -46,6 +47,7 @@ class FiLMUNet(nn.Module):
         super().__init__()
         self.cfg = cfg
         self._set_conditioning(cfg.model.kim_condition)
+        self._set_runtime_config(cfg)
 
         self.model = ScoreInformedMidiVelocityEstimator(
             frames_per_second=kim_config.frames_per_second,
@@ -58,8 +60,37 @@ class FiLMUNet(nn.Module):
         kim_config.condition_check = kim_condition == "frame"
         kim_config.condition_type = "frame"
 
+    @staticmethod
+    def _set_runtime_config(cfg) -> None:
+        kim_config.sample_rate = int(cfg.feature.sample_rate)
+        kim_config.frames_per_second = int(cfg.feature.frames_per_second)
+        kim_config.classes_num = int(cfg.feature.classes_num)
+
+    @staticmethod
+    def _align_score_time(score: Optional[torch.Tensor], target_frames: int) -> Optional[torch.Tensor]:
+        if score is None or score.dim() != 3 or score.size(1) == target_frames:
+            return score
+        score_4d = score.unsqueeze(1)
+        aligned = F.interpolate(
+            score_4d,
+            size=(target_frames, score.size(2)),
+            mode="nearest",
+        )
+        return aligned[:, 0]
+
     def forward(self, waveform, score: Optional[torch.Tensor] = None):
-        return self.model(waveform, score)
+        original_frames = None if score is None else int(score.size(1))
+        if score is not None:
+            hop_size = max(1, kim_config.sample_rate // kim_config.frames_per_second)
+            target_frames = 1 + (waveform.shape[-1] // hop_size)
+            score = self._align_score_time(score, target_frames)
+        output = self.model(waveform, score)
+        if original_frames is not None:
+            velocity_output = output.get("velocity_output")
+            if torch.is_tensor(velocity_output) and velocity_output.dim() >= 3:
+                output = dict(output)
+                output["velocity_output"] = velocity_output[:, :original_frames]
+        return output
 
 
 class FiLMUNetPretrained(FiLMUNet):
