@@ -179,20 +179,7 @@ proxy:
     project_root: ""       # optional backend-specific root. default: ../synthesizer/ddsp-*
 
   audio_loss:
-    type: "piano_ssm_spectral_plus_log_rms"   # multi_scale_stft | piano_ssm_combined | piano_ssm_combined_rm | piano_ssm_spectral | piano_ssm_spectral_plus_log_rms | piano_ssm_spectral_plus_ddsp_loudness | piano_ssm_chroma | global_rms | global_log_rms | ddsp_piano_loudness
-    # ---------------------------------------------------------------------
-    # Legacy multi-scale STFT loss used by the first proxy patch.
-    # ---------------------------------------------------------------------
-    multi_scale_stft:
-      fft_sizes: [512, 1024, 2048]
-      hop_ratio: 0.25
-      win_ratio: 1.0
-      spectral_convergence_weight: 1.0
-      log_mag_weight: 1.0
-      lin_mag_weight: 0.0
-      waveform_l1_weight: 0.0
-      eps: 1.0e-7
-
+    type: "piano_ssm_spectral_plus_log_rms"   # preferred Route III choices: piano_ssm_combined | piano_ssm_combined_rm | piano_ssm_spectral | piano_ssm_spectral_plus_log_rms | piano_ssm_spectral_plus_ddsp_loudness | ddsp_piano_loudness
     # ---------------------------------------------------------------------
     # Piano-SSM SMML = STFT loss + Mel-STFT loss + mean loss.
     # These losses are evaluated at proxy.supervision.sample_rate.
@@ -236,20 +223,6 @@ proxy:
       overlap: 0.75
       eps: 1.0e-5
 
-    # ---------------------------------------------------------------------
-    # Standalone loudness losses.
-    # global_log_rms is the conservative auxiliary branch.
-    # ddsp_piano_loudness uses proxy.supervision.frame_rate unless overridden.
-    # ---------------------------------------------------------------------
-    global_rms:
-      loss_type: "L1"
-      eps: 1.0e-7
-
-    global_log_rms:
-      loss_type: "L1"
-      db_scale: true
-      eps: 1.0e-7
-
     ddsp_piano_loudness:
       frame_rate: 250
       n_fft: 2048
@@ -274,17 +247,6 @@ proxy:
     piano_ssm_spectral_plus_ddsp_loudness:
       spectral_weight: 1.0
       loudness_weight: 0.05
-
-    # ---------------------------------------------------------------------
-    # Differentiable chroma-domain loss inspired by Piano-SSM ChromaLoss.
-    # ---------------------------------------------------------------------
-    piano_ssm_chroma:
-      fft_size: 4096
-      hop_size: 512
-      win_length: null
-      n_chroma: 12
-      threshold: 0.3
-      eps: 1.0e-5
 
   ddsp_piano:
     # Native DDSP-Piano training / checkpoint contract.
@@ -447,7 +409,9 @@ route2:
     audio_reference_mode: "dataset"   # dataset | folder | none
     gt_midi_dir: ""                   # required when manifest_mode=folder
     reference_audio_dir: ""           # required when audio_reference_mode=folder
-    instrument_path: ""
+    # instrument_path: ""
+    # instrument_path: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
+    instrument_path: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
     split: "test"
     maps_pianos: "both"
     render_sr: 44100

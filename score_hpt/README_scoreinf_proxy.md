@@ -106,15 +106,11 @@ Route III / IV 同理，只需要把入口改成 `train_ddsp.py` 或 `train_prox
 
 在 [`config.yaml`](/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/pytorch/config/config.yaml) 里当前可选的是：
 
-- `multi_scale_stft`
 - `piano_ssm_combined`
 - `piano_ssm_combined_rm`
 - `piano_ssm_spectral`
 - `piano_ssm_spectral_plus_log_rms`
 - `piano_ssm_spectral_plus_ddsp_loudness`
-- `piano_ssm_chroma`
-- `global_rms`
-- `global_log_rms`
 - `ddsp_piano_loudness`
 
 推荐默认：

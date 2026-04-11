@@ -1,0 +1,69 @@
+{
+  "os": "Linux-6.8.0-85-generic-x86_64-with-glibc2.35",
+  "python": "CPython 3.11.11",
+  "startedAt": "2026-04-11T13:25:15.165487Z",
+  "args": [
+    "exp.workspace=/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces",
+    "exp.batch_size=4",
+    "dataset.train_set=maestro",
+    "dataset.test_set=maestro",
+    "dataset.eval_sets=[train,maestro,smd]",
+    "model.type=hpt",
+    "model.input2=onset",
+    "model.input3=frame",
+    "score_informed.method=note_editor",
+    "loss.supervised_weight=0.0",
+    "loss.proxy_weight=1.0",
+    "loss.velocity_prior_weight=0.0",
+    "proxy.enabled=true",
+    "proxy.type=diffproxy",
+    "proxy.project_root=/media/mengh/SharedData/zhanh/202604_midiproxy/synth-proxy",
+    "proxy.checkpoint=/media/mengh/SharedData/zhanh/202604_midiproxy_data/synth-proxy/proxy/checkpoints/salamander_piano/piano_salamander_piano_coverage_v2_b0_c1_r0_s0_2s_default/piano_salamander_piano_coverage_v2_b0_c1_r0_s0_2s_default_e175_loss0.0566.ckpt",
+    "proxy.backend_segment_seconds=2",
+    "proxy.warmup_iterations=0",
+    "proxy.supervision.hop_size=221",
+    "proxy.sfproxy.instrument_name=salamander_piano",
+    "proxy.sfproxy.loss_type=smooth_l1",
+    "proxy.sfproxy.use_gt_aligned_note_events=true",
+    "proxy.sfproxy.feature.hop=221",
+    "wandb.comment=maestro_coverage_2s_smooth_l1",
+    "train_eval.audio_metrics.enabled=true",
+    "train_eval.audio_metrics.instrument_path=/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
+  ],
+  "program": "/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt/pytorch/train_proxy.py",
+  "codePath": "score_hpt/pytorch/train_proxy.py",
+  "git": {
+    "remote": "git_zhanh:zhanh-he/202604_midiproxy.git",
+    "commit": "612de7dad6d644be568341b4153be70b2e7cfe16"
+  },
+  "email": "22597343@student.uwa.edu.au",
+  "root": "/media/mengh/SharedData/zhanh/202604_midiproxy/score_hpt",
+  "host": "mengh-8625",
+  "executable": "/home/mengh/miniconda3/envs/dynest/bin/python",
+  "codePathLocal": "pytorch/train_proxy.py",
+  "cpu_count": 12,
+  "cpu_count_logical": 24,
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "1122113290240",
+      "used": "520188805120"
+    }
+  },
+  "memory": {
+    "total": "66481553408"
+  },
+  "cpu": {
+    "count": 12,
+    "countLogical": 24
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 5090",
+      "memoryTotal": "34190917632",
+      "cudaCores": 21760
+    }
+  ],
+  "cudaVersion": "13.0"
+}

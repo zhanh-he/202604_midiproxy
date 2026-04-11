@@ -274,12 +274,9 @@ def get_audio_loss_name(cfg) -> str:
         raw_name = getattr(audio_cfg, "type", None)
         if raw_name is None:
             raw_name = getattr(audio_cfg, "name", None)
-    raw_name = str(raw_name or "multi_scale_stft").strip().lower()
+    raw_name = str(raw_name or "piano_ssm_spectral_plus_log_rms").strip().lower()
 
     alias_map = {
-        "multiscalestft": "multi_scale_stft",
-        "multiscale_stft": "multi_scale_stft",
-        "mstft": "multi_scale_stft",
         "combinedspectralloss": "piano_ssm_combined",
         "combined_spectral_loss": "piano_ssm_combined",
         "combined_spectral": "piano_ssm_combined",
@@ -299,17 +296,9 @@ def get_audio_loss_name(cfg) -> str:
         "piano_ssm_spectral_plus_ddsploudness": "piano_ssm_spectral_plus_ddsp_loudness",
         "combined_rm": "piano_ssm_combined_rm",
         "piano_ssm_combinedrm": "piano_ssm_combined_rm",
-        "log_rms": "global_log_rms",
-        "global_logrms": "global_log_rms",
-        "rms": "global_rms",
-        "globalrms": "global_rms",
         "loudness": "ddsp_piano_loudness",
         "ddsp_loudness": "ddsp_piano_loudness",
         "ddsp_piano_loudnessloss": "ddsp_piano_loudness",
-        "chromaloss": "piano_ssm_chroma",
-        "chroma_loss": "piano_ssm_chroma",
-        "piano_ssm_chromaloss": "piano_ssm_chroma",
-        "piano_ssm_chroma_loss": "piano_ssm_chroma",
     }
     return alias_map.get(raw_name, raw_name)
 
@@ -1114,15 +1103,11 @@ class PianoSSMChromaLoss(_BaseAudioLoss):
 
 
 AUDIO_LOSS_TYPES = {
-    "multi_scale_stft": MultiScaleSTFTLoss,
     "piano_ssm_combined": PianoSSMCombinedSpectralLoss,
     "piano_ssm_combined_rm": PianoSSMCombinedRMLoss,
     "piano_ssm_spectral": PianoSSMSpectralLoss,
     "piano_ssm_spectral_plus_log_rms": PianoSSMSpectralPlusLogRMSLoss,
     "piano_ssm_spectral_plus_ddsp_loudness": PianoSSMSpectralPlusDDSPLoudnessLoss,
-    "piano_ssm_chroma": PianoSSMChromaLoss,
-    "global_rms": GlobalRMSLoss,
-    "global_log_rms": GlobalLogRMSLoss,
     "ddsp_piano_loudness": DDSPPianoLoudnessLoss,
 }
 
@@ -1146,18 +1131,8 @@ def _build_piano_ssm_spectral_loss_from_cfg(cfg, sample_rate: int) -> PianoSSMSp
     )
 
 
-
-def _build_global_rms_loss_from_cfg(cfg) -> GlobalRMSLoss:
-    audio_cfg = _get_audio_loss_cfg(cfg, "global_rms")
-    return GlobalRMSLoss(
-        loss_type=str(getattr(audio_cfg, "loss_type", "L1")),
-        eps=float(getattr(audio_cfg, "eps", 1e-7)),
-    )
-
-
-
-def _build_global_log_rms_loss_from_cfg(cfg) -> GlobalLogRMSLoss:
-    audio_cfg = _get_audio_loss_cfg(cfg, "global_log_rms")
+def _build_log_rms_aux_loss_from_cfg(cfg) -> GlobalLogRMSLoss:
+    audio_cfg = _get_audio_loss_cfg(cfg, "piano_ssm_spectral_plus_log_rms")
     return GlobalLogRMSLoss(
         loss_type=str(getattr(audio_cfg, "loss_type", "L1")),
         db_scale=bool(getattr(audio_cfg, "db_scale", True)),
@@ -1187,27 +1162,6 @@ def build_audio_loss(cfg, sample_rate_override=None, frame_rate_override=None):
     else:
         sample_rate = int(
             getattr(getattr(cfg, "proxy", None), "sample_rate", getattr(getattr(cfg, "feature", None), "sample_rate", 16000))
-        )
-
-    if audio_loss_name == "multi_scale_stft":
-        audio_cfg = _get_audio_loss_cfg(cfg, "multi_scale_stft")
-        fft_sizes = tuple(getattr(audio_cfg, "fft_sizes", (512, 1024, 2048)))
-        hop_ratio = float(getattr(audio_cfg, "hop_ratio", 0.25))
-        win_ratio = float(getattr(audio_cfg, "win_ratio", 1.0))
-        spectral_convergence_weight = float(getattr(audio_cfg, "spectral_convergence_weight", 1.0))
-        log_mag_weight = float(getattr(audio_cfg, "log_mag_weight", 1.0))
-        lin_mag_weight = float(getattr(audio_cfg, "lin_mag_weight", 0.0))
-        waveform_l1_weight = float(getattr(audio_cfg, "waveform_l1_weight", 0.0))
-        eps = float(getattr(audio_cfg, "eps", 1e-7))
-        return MultiScaleSTFTLoss(
-            fft_sizes=fft_sizes,
-            hop_ratio=hop_ratio,
-            win_ratio=win_ratio,
-            spectral_convergence_weight=spectral_convergence_weight,
-            log_mag_weight=log_mag_weight,
-            lin_mag_weight=lin_mag_weight,
-            waveform_l1_weight=waveform_l1_weight,
-            eps=eps,
         )
 
     if audio_loss_name == "piano_ssm_combined":
@@ -1247,7 +1201,7 @@ def build_audio_loss(cfg, sample_rate_override=None, frame_rate_override=None):
     if audio_loss_name == "piano_ssm_spectral_plus_log_rms":
         audio_cfg = _get_audio_loss_cfg(cfg, "piano_ssm_spectral_plus_log_rms")
         spectral_loss = _build_piano_ssm_spectral_loss_from_cfg(cfg, sample_rate=sample_rate)
-        log_rms_loss = _build_global_log_rms_loss_from_cfg(cfg)
+        log_rms_loss = _build_log_rms_aux_loss_from_cfg(cfg)
         return PianoSSMSpectralPlusLogRMSLoss(
             spectral_loss=spectral_loss,
             log_rms_loss=log_rms_loss,
@@ -1269,24 +1223,6 @@ def build_audio_loss(cfg, sample_rate_override=None, frame_rate_override=None):
             spectral_weight=float(getattr(audio_cfg, "spectral_weight", 1.0)),
             loudness_weight=float(getattr(audio_cfg, "loudness_weight", 0.05)),
         )
-
-    if audio_loss_name == "piano_ssm_chroma":
-        audio_cfg = _get_audio_loss_cfg(cfg, "piano_ssm_chroma")
-        return PianoSSMChromaLoss(
-            sample_rate=sample_rate,
-            fft_size=int(getattr(audio_cfg, "fft_size", 4096)),
-            hop_size=int(getattr(audio_cfg, "hop_size", 512)),
-            win_length=getattr(audio_cfg, "win_length", None),
-            n_chroma=int(getattr(audio_cfg, "n_chroma", 12)),
-            threshold=float(getattr(audio_cfg, "threshold", 0.3)),
-            eps=float(getattr(audio_cfg, "eps", 1e-5)),
-        )
-
-    if audio_loss_name == "global_rms":
-        return _build_global_rms_loss_from_cfg(cfg)
-
-    if audio_loss_name == "global_log_rms":
-        return _build_global_log_rms_loss_from_cfg(cfg)
 
     if audio_loss_name == "ddsp_piano_loudness":
         return _build_ddsp_piano_loudness_loss_from_cfg(

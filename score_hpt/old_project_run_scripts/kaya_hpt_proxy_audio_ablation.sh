@@ -87,12 +87,11 @@ PROXY_ROOT=${PROXY_ROOT:-}
 
 EXP_NAME=(
   "A_supervised_only"
-  "B_proxy_mstft"
-  "C_proxy_piano_ssm_spectral"
-  "D_proxy_piano_ssm_spectral_plus_log_rms"
-  "E_proxy_piano_ssm_combined"
-  "F_proxy_piano_ssm_combined_rm"
-  "G_proxy_piano_ssm_spectral_plus_ddsp_loudness"
+  "B_proxy_piano_ssm_spectral"
+  "C_proxy_piano_ssm_spectral_plus_log_rms"
+  "D_proxy_piano_ssm_combined"
+  "E_proxy_piano_ssm_combined_rm"
+  "F_proxy_piano_ssm_spectral_plus_ddsp_loudness"
 )
 EXP_PROXY_ENABLED=(
   "false"
@@ -113,8 +112,6 @@ EXP_PROXY_WEIGHT=(
   "$PROXY_WEIGHT"
 )
 EXP_AUDIO_LOSS=(
-  "multi_scale_stft"
-  "multi_scale_stft"
   "piano_ssm_spectral"
   "piano_ssm_spectral_plus_log_rms"
   "piano_ssm_combined"
