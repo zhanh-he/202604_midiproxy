@@ -39,8 +39,8 @@ _model_spec.loader.exec_module(_kim_model)
 ScoreInformedMidiVelocityEstimator = _kim_model.ScoreInformedMidiVelocityEstimator
 
 
-class FiLMUNetPretrained(nn.Module):
-    """Thin wrapper around the original FiLM U-Net with pretrained weights."""
+class FiLMUNet(nn.Module):
+    """Thin wrapper around the original FiLM U-Net trained from scratch."""
 
     def __init__(self, cfg):
         super().__init__()
@@ -51,9 +51,6 @@ class FiLMUNetPretrained(nn.Module):
             frames_per_second=kim_config.frames_per_second,
             classes_num=kim_config.classes_num,
         )
-        checkpoint_path = self._resolve_checkpoint_path(cfg)
-        state_dict = self._prepare_state_dict(self._load_state_dict(checkpoint_path))
-        self.model.load_state_dict(state_dict, strict=True)
 
     @staticmethod
     def _set_conditioning(kim_condition: str) -> None:
@@ -61,10 +58,26 @@ class FiLMUNetPretrained(nn.Module):
         kim_config.condition_check = kim_condition == "frame"
         kim_config.condition_type = "frame"
 
+    def forward(self, waveform, score: Optional[torch.Tensor] = None):
+        return self.model(waveform, score)
+
+
+class FiLMUNetPretrained(FiLMUNet):
+    """Thin wrapper around the original FiLM U-Net with pretrained weights."""
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        checkpoint_path = self._resolve_checkpoint_path(cfg)
+        state_dict = self._prepare_state_dict(self._load_state_dict(checkpoint_path))
+        self.model.load_state_dict(state_dict, strict=True)
+
     @staticmethod
     def _resolve_checkpoint_path(cfg) -> Path:
-        ckpt_path = Path(cfg.model.pretrained_checkpoint)
-        if not ckpt_path.exists():
+        raw_path = str(getattr(cfg.model, "pretrained_checkpoint", "")).strip()
+        if not raw_path:
+            raise ValueError("filmunet_pretrained requires model.pretrained_checkpoint to be set.")
+        ckpt_path = Path(raw_path).expanduser()
+        if not ckpt_path.is_file():
             raise FileNotFoundError(
                 f"Pretrained FiLM U-Net checkpoint not found at {ckpt_path}"
             )
@@ -103,6 +116,3 @@ class FiLMUNetPretrained(nn.Module):
             if key.startswith("spectrogram_extractor") or key.startswith("logmel_extractor"):
                 prepared[key] = tensor.detach().clone()
         return prepared
-
-    def forward(self, waveform, score: Optional[torch.Tensor] = None):
-        return self.model(waveform, score)

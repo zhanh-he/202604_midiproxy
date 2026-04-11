@@ -48,12 +48,16 @@ python pytorch/train_proxy.py \
 当前训练链已经支持：
 
 - `hpt`
+- `hpt_pretrained`
 - `hppnet`
 - `dynest`
-- `filmunet_pretrained`
 - `filmunet`
+- `filmunet_pretrained`
 
-其中 `FiLMUNet` 现在也可以直接用于 Route II / III / IV 训练。
+其中：
+
+- `hpt` / `filmunet` 是从零训练
+- `hpt_pretrained` / `filmunet_pretrained` 是继续训练，要求提供 `model.pretrained_checkpoint`
 
 默认建议：
 
@@ -61,7 +65,14 @@ python pytorch/train_proxy.py \
 
 这在当前 repo 里已经是默认值，不需要额外再写。
 
-如果要训练 FiLMUNet，最稳妥的是：
+如果要从零训练 FiLMUNet：
+
+```bash
+python pytorch/train.py \
+  model.type=filmunet
+```
+
+如果要继续训练 pretrained FiLMUNet：
 
 ```bash
 python pytorch/train.py \
@@ -167,8 +178,10 @@ Route III / IV 同理，只需要把入口改成 `train_ddsp.py` 或 `train_prox
 base model 可以扫：
 
 - `hpt`
+- `hpt_pretrained`
 - `hppnet`
 - `dynest`
+- `filmunet`
 - `filmunet_pretrained`
 
 ### Route III

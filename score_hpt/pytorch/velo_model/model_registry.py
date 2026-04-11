@@ -9,6 +9,7 @@ from .hppnet_adapter import HPPNet_SP
 
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "hpt": Single_Velocity_HPT,
+    "hpt_pretrained": Single_Velocity_HPT,
     "dynest": DynestAudioCNN,
     "hppnet": HPPNet_SP,
 }

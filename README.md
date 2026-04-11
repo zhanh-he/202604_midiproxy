@@ -315,3 +315,24 @@ proxy:
 
 That keeps the ablation minimal.
 Only the guitar DiffSynth implementation changes.
+
+```bash
+# 5090
+TRAIN_SET=maestro \
+SEGMENT_LIST="2" \
+EXTRA_OVERRIDES="train_eval.audio_metrics.enabled=true train_eval.audio_metrics.instrument_path=/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz" \
+bash run_scripts/train_route4_ablation.sh
+
+SAMPLERS="coverage mixed realism" \
+LOSS_TYPES="smooth_l1 l1 mse" \
+
+
+# 3090
+TRAIN_SET=maestro \
+SEGMENT_LIST="2" \
+EXTRA_OVERRIDES="train_eval.audio_metrics.enabled=true train_eval.audio_metrics.instrument_path=/media/mengh/SharedData/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz" \
+bash run_scripts/train_route3_ablation.sh
+
+LOSS_TYPES="piano_ssm_spectral_plus_log_rms" \
+TRAIN_SET=maestro \
+```

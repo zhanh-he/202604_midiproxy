@@ -79,7 +79,7 @@ dataset:
 # AMT modules (base model + adapter + conditioning)
 # ---------------------------
 model:
-  type: "hpt"  # hpt | hppnet | dynest
+  type: "hpt"  # hpt | hpt_pretrained | filmunet | filmunet_pretrained | hppnet | dynest
   params: {}
   # score-inf condition selector:
   # direct: ignore input2/input3.
@@ -87,7 +87,7 @@ model:
   # note_editor: input2 must be onset; input3 is null/frame/exframe.
   input2: null # onset | frame | exframe | null
   input3: null # onset | frame | exframe | null
-  kim_condition: "frame" # for FiLMUNetPretrained only: frame | none
+  kim_condition: "frame" # for FiLMUNet family: frame | none
   pretrained_checkpoint: "" # explicit ckpt path for eval/infer (all model types)
   hppnet_model_size: 128
 

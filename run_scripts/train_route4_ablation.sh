@@ -14,10 +14,11 @@ BOUNDARY_MODE="${BOUNDARY_MODE:-default}"
 SAMPLERS="${SAMPLERS:-coverage mixed realism}"
 LOSS_TYPES="${LOSS_TYPES:-smooth_l1 l1 mse}"
 PROXY_CKPT="${PROXY_CKPT:-${1:-}}"
+MODEL_TYPE="${MODEL_TYPE:-hpt}"
 
 BATCH_SIZE="${BATCH_SIZE:-4}"
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
-PROXY_WEIGHT="${PROXY_WEIGHT:-1.0}"
+BACKEND_WEIGHT="${BACKEND_WEIGHT:-${PROXY_WEIGHT:-1.0}}"
 PRIOR_WEIGHT="${PRIOR_WEIGHT:-0.0}"
 WARMUP_ITERS="${WARMUP_ITERS:-0}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
@@ -111,10 +112,11 @@ run_one() {
   echo "Route IV ablation"
   echo "Train set         : ${TRAIN_SET}"
   echo "Test set          : ${TEST_SET}"
+  echo "Model             : ${MODEL_TYPE}"
   echo "Proxy checkpoint  : ${ckpt}"
   echo "Backend seg (s)   : ${segment}"
   echo "Sampler           : ${sampler}"
-  echo "Proxy loss        : ${loss}"
+  echo "Backend loss      : ${loss}"
   echo "Instrument name   : ${INSTRUMENT_NAME}"
   echo "============================================================"
 
@@ -124,12 +126,12 @@ run_one() {
     "dataset.train_set=${TRAIN_SET}" \
     "dataset.test_set=${TEST_SET}" \
     "dataset.eval_sets=${EVAL_SETS}" \
-    "model.type=hpt" \
+    "model.type=${MODEL_TYPE}" \
     "model.input2=onset" \
     "model.input3=frame" \
     "score_informed.method=note_editor" \
     "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
-    "loss.proxy_weight=${PROXY_WEIGHT}" \
+    "loss.proxy_weight=${BACKEND_WEIGHT}" \
     "loss.velocity_prior_weight=${PRIOR_WEIGHT}" \
     "proxy.enabled=true" \
     "proxy.type=diffproxy" \

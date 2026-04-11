@@ -14,10 +14,11 @@ LOSS_TYPES="${LOSS_TYPES:-piano_ssm_spectral piano_ssm_spectral_plus_log_rms pia
 DDSP_CKPTS="${DDSP_CKPTS:-}"
 DDSP_PHASE="${DDSP_PHASE:-1}"
 CKPT_EPOCH="${CKPT_EPOCH:-7}"
+MODEL_TYPE="${MODEL_TYPE:-hpt}"
 
 BATCH_SIZE="${BATCH_SIZE:-4}"
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
-PROXY_WEIGHT="${PROXY_WEIGHT:-1.0}"
+BACKEND_WEIGHT="${BACKEND_WEIGHT:-${PROXY_WEIGHT:-1.0}}"
 PRIOR_WEIGHT="${PRIOR_WEIGHT:-0.0}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
@@ -73,10 +74,11 @@ run_one() {
   echo "Route III ablation"
   echo "Train set         : ${TRAIN_SET}"
   echo "Test set          : ${TEST_SET}"
+  echo "Model             : ${MODEL_TYPE}"
   echo "Proxy type        : ${DIFFSYNTH_PROXY_TYPE}"
   echo "Proxy checkpoint  : ${ckpt}"
   echo "Backend seg (s)   : ${segment}"
-  echo "Audio loss        : ${audio_loss}"
+  echo "Backend objective : ${audio_loss}"
   echo "============================================================"
 
   "${PYTHON_BIN}" pytorch/train_ddsp.py \
@@ -85,12 +87,12 @@ run_one() {
     "dataset.train_set=${TRAIN_SET}" \
     "dataset.test_set=${TEST_SET}" \
     "dataset.eval_sets=${EVAL_SETS}" \
-    "model.type=hpt" \
+    "model.type=${MODEL_TYPE}" \
     "model.input2=onset" \
     "model.input3=frame" \
     "score_informed.method=note_editor" \
     "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
-    "loss.proxy_weight=${PROXY_WEIGHT}" \
+    "loss.proxy_weight=${BACKEND_WEIGHT}" \
     "loss.velocity_prior_weight=${PRIOR_WEIGHT}" \
     "proxy.enabled=true" \
     "proxy.type=${DIFFSYNTH_PROXY_TYPE}" \

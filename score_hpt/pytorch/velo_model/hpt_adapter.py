@@ -6,11 +6,17 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pathlib import Path
 
 from feature_extractor import get_feature_extractor_and_bins
 from score_inf.utils import safe_logit
 
 from .base import BaseAdapter, ensure_btp88, register_adapter
+from .pretrained_utils import (
+    resolve_pretrained_checkpoint,
+    select_prefixed_substate,
+    unwrap_checkpoint_state_dict,
+)
 
 
 def init_layer(layer):
@@ -192,6 +198,17 @@ class Single_Velocity_HPT(nn.Module):
         return {"velocity_output": est_velocity, "velocity_logits": vel_logits}
 
 
+def _load_hpt_pretrained_weights(model: nn.Module, checkpoint_path: Path) -> None:
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = unwrap_checkpoint_state_dict(checkpoint)
+    model_state = select_prefixed_substate(
+        state_dict,
+        model.state_dict().keys(),
+        prefixes=("base_adapter.model.", "model.", ""),
+    )
+    model.load_state_dict(model_state, strict=True)
+
+
 @dataclass
 class HPTKeySpec:
     dict_keys: Optional[Dict[str, str]] = None
@@ -257,3 +274,25 @@ class HPTAdapter(BaseAdapter):
     def forward(self, audio: torch.Tensor, *args, **kwargs) -> Dict[str, Any]:
         out = self.model(audio, *args, **kwargs)
         return self._finalize(self._from_dict(out))
+
+
+@register_adapter("hpt_pretrained")
+class HPTPretrainedAdapter(HPTAdapter):
+    def __init__(
+        self,
+        model: Optional[nn.Module] = None,
+        cfg=None,
+        keyspec: Optional[Dict[str, Any]] = None,
+        keep_extra: bool = True,
+    ):
+        if model is None:
+            if cfg is None:
+                raise ValueError("HPTPretrainedAdapter: cfg is required when model is None.")
+            model = Single_Velocity_HPT(cfg)
+            checkpoint_path = resolve_pretrained_checkpoint(
+                getattr(cfg.model, "pretrained_checkpoint", ""),
+                model_label="hpt_pretrained",
+                required=True,
+            )
+            _load_hpt_pretrained_weights(model, checkpoint_path)
+        super().__init__(model=model, cfg=cfg, keyspec=keyspec, keep_extra=keep_extra)

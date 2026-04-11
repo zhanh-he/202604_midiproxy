@@ -2,12 +2,14 @@
 
 This note is for the current `route3` and `route4` training scripts in this repo.
 
-- `route3` means differentiable audio-proxy training via `pytorch/train_ddsp.py`
-- `route4` means differentiable note-proxy training via `pytorch/train_proxy.py`
+- `route3` means differentiable audio-backend training via `pytorch/train_ddsp.py`
+- `route4` means differentiable note-backend training via `pytorch/train_proxy.py`
 - default base model in the ablation scripts is `hpt`
-- if you want to switch to `filmunet_pretrained`, use `EXTRA_OVERRIDES`
+- scratch training model choices are `hpt` and `filmunet`
+- pretrained continuation model choices are `hpt_pretrained` and `filmunet_pretrained`
 - BSSL / BSTL audio evaluation is off by default
 - the default `instrument_path` stays empty on purpose, so Kaya or any machine without local soundfonts will not fail unless you explicitly enable audio evaluation
+- route3 / route4 run names now automatically include `sup*` and `backend*` weights
 
 ## Local Soundfont Paths
 
@@ -72,11 +74,10 @@ TRAIN_SET=francoisleduc SEGMENT_LIST="2 5" LOSS_TYPES="piano_ssm_spectral piano_
   bash run_scripts/train_route3_ablation.sh
 ```
 
-Use FiLM-UNet instead of HPT:
+Use scratch FiLM-UNet instead of HPT:
 
 ```bash
-TRAIN_SET=maestro SEGMENT_LIST="2" LOSS_TYPES="piano_ssm_spectral_plus_log_rms" \
-  EXTRA_OVERRIDES="model.type=filmunet_pretrained" \
+TRAIN_SET=maestro MODEL_TYPE=filmunet SEGMENT_LIST="2" LOSS_TYPES="piano_ssm_spectral_plus_log_rms" \
   bash run_scripts/train_route3_ablation.sh
 ```
 
@@ -115,11 +116,10 @@ TRAIN_SET=gaps SEGMENT_LIST="2 5" SAMPLERS="realism" LOSS_TYPES="smooth_l1 l1" \
   bash run_scripts/train_route4_ablation.sh
 ```
 
-Use FiLM-UNet instead of HPT:
+Use scratch FiLM-UNet instead of HPT:
 
 ```bash
-TRAIN_SET=maestro SEGMENT_LIST="2" SAMPLERS="mixed" LOSS_TYPES="smooth_l1" \
-  EXTRA_OVERRIDES="model.type=filmunet_pretrained" \
+TRAIN_SET=maestro MODEL_TYPE=filmunet SEGMENT_LIST="2" SAMPLERS="mixed" LOSS_TYPES="smooth_l1" \
   bash run_scripts/train_route4_ablation.sh
 ```
 
@@ -146,7 +146,7 @@ SEGMENT_SECONDS=2 AUDIO_LOSS=piano_ssm_spectral_plus_log_rms \
 Change the model:
 
 ```bash
-MODEL_TYPE=filmunet_pretrained SEGMENT_SECONDS=2 AUDIO_LOSS=piano_ssm_spectral_plus_log_rms \
+MODEL_TYPE=filmunet SEGMENT_SECONDS=2 AUDIO_LOSS=piano_ssm_spectral_plus_log_rms \
   bash kaya_scripts/kaya_hpt_route3_single.sh
 ```
 
@@ -162,7 +162,7 @@ SAMPLER=mixed SEGMENT_SECONDS=2 PROXY_LOSS=smooth_l1 \
 Change the model:
 
 ```bash
-MODEL_TYPE=filmunet_pretrained SAMPLER=mixed SEGMENT_SECONDS=2 PROXY_LOSS=smooth_l1 \
+MODEL_TYPE=filmunet SAMPLER=mixed SEGMENT_SECONDS=2 PROXY_LOSS=smooth_l1 \
   bash kaya_scripts/kaya_hpt_route4_single.sh
 ```
 
@@ -171,9 +171,14 @@ MODEL_TYPE=filmunet_pretrained SAMPLER=mixed SEGMENT_SECONDS=2 PROXY_LOSS=smooth
 Common knobs:
 
 - `TRAIN_SET`: `maestro`, `smd`, `francoisleduc`, `gaps`
+- `MODEL_TYPE`: `hpt`, `filmunet`, `hpt_pretrained`, or `filmunet_pretrained`
 - `SEGMENT_LIST`: backend crop length sweep for ablation scripts
 - `BATCH_SIZE`: train batch size
+- `SUPERVISED_WEIGHT`: Route II-style supervised loss weight
+- `BACKEND_WEIGHT`: backend loss weight
 - `EXTRA_OVERRIDES`: additional Hydra overrides appended at the end of the command
+
+`BACKEND_WEIGHT` is the preferred name in the ablation scripts. The old `PROXY_WEIGHT` spelling is still accepted as a compatibility fallback.
 
 Route III specific:
 
@@ -301,19 +306,22 @@ Route III uses differentiable audio supervision. The train-side charts mainly de
 
 | Chart name | Meaning | Better | Priority |
 | --- | --- | --- | --- |
-| `train_total_loss` | Total optimized loss for the step average. In default Route III this is usually almost the same as `train_proxy_loss`. | Smaller | High |
-| `train_proxy_loss` | Main differentiable backend loss actually optimized by Route III. | Smaller | High |
-| `train_proxy_spectral_raw` | Raw Piano-SSM spectral loss before weighting. This is the main default audio loss term. | Smaller | High |
-| `train_proxy_spectral_weighted` | Weighted spectral contribution after multiplying by the spectral weight. Default weight is usually `1.0`, so it often matches `spectral_raw`. | Smaller | Medium |
-| `train_proxy_log_rms_raw` | Raw clip-level log-RMS auxiliary loss. It helps stabilize overall loudness matching. | Smaller | Medium |
-| `train_proxy_log_rms_weighted` | Weighted log-RMS contribution after multiplying by `log_rms_weight`. Default weight is small, so this is usually much smaller than `log_rms_raw`. | Smaller | Medium |
-| `train_proxy_log_rms_log_rms_loss` | Internal log-RMS loss reported by the submodule. Semantically similar to the previous log-RMS term. | Smaller | Low |
-| `train_proxy_log_rms_log_rms_pred` | Average log-RMS of rendered prediction audio. | Closer to target | Low |
-| `train_proxy_log_rms_log_rms_target` | Average log-RMS of target audio. This is a reference trace, not an optimization score by itself. | Reference | Low |
-| `train_proxy_spectral_audio_rms_pred` | Average RMS of rendered prediction audio reported from the spectral-loss branch. | Closer to target | Low |
-| `train_proxy_spectral_audio_rms_target` | Average RMS of target audio reported from the spectral-loss branch. | Reference | Low |
-| `train_proxy_log_rms_audio_rms_pred` | Average RMS of rendered prediction audio reported from the log-RMS branch. | Closer to target | Low |
-| `train_proxy_log_rms_audio_rms_target` | Average RMS of target audio reported from the log-RMS branch. | Reference | Low |
+| `train_total_loss` | Total optimized loss for the step average. In default Route III this is usually almost the same as `train_backend_loss`. | Smaller | High |
+| `train_supervised_loss` | Raw Route II-style supervised velocity loss, only present when `loss.supervised_weight > 0`. | Smaller | High |
+| `train_supervised_weighted` | Actual weighted supervised contribution added into `train_total_loss`. | Smaller | High |
+| `train_backend_loss` | Main differentiable backend loss actually optimized by Route III. | Smaller | High |
+| `train_backend_weighted` | Actual weighted backend contribution added into `train_total_loss`. | Smaller | High |
+| `train_backend_spectral_raw` | Raw Piano-SSM spectral loss before weighting. This is the main default audio loss term. | Smaller | High |
+| `train_backend_spectral_weighted` | Weighted spectral contribution after multiplying by the spectral weight. Default weight is usually `1.0`, so it often matches `spectral_raw`. | Smaller | Medium |
+| `train_backend_log_rms_raw` | Raw clip-level log-RMS auxiliary loss. It helps stabilize overall loudness matching. | Smaller | Medium |
+| `train_backend_log_rms_weighted` | Weighted log-RMS contribution after multiplying by `log_rms_weight`. Default weight is small, so this is usually much smaller than `log_rms_raw`. | Smaller | Medium |
+| `train_backend_log_rms_log_rms_loss` | Internal log-RMS loss reported by the submodule. Semantically similar to the previous log-RMS term. | Smaller | Low |
+| `train_backend_log_rms_log_rms_pred` | Average log-RMS of rendered prediction audio. | Closer to target | Low |
+| `train_backend_log_rms_log_rms_target` | Average log-RMS of target audio. This is a reference trace, not an optimization score by itself. | Reference | Low |
+| `train_backend_spectral_audio_rms_pred` | Average RMS of rendered prediction audio reported from the spectral-loss branch. | Closer to target | Low |
+| `train_backend_spectral_audio_rms_target` | Average RMS of target audio reported from the spectral-loss branch. | Reference | Low |
+| `train_backend_log_rms_audio_rms_pred` | Average RMS of rendered prediction audio reported from the log-RMS branch. | Closer to target | Low |
+| `train_backend_log_rms_audio_rms_target` | Average RMS of target audio reported from the log-RMS branch. | Reference | Low |
 | `velocity_roll_comparison` | Visualization of target and predicted velocity rolls. This is for visual inspection, not for scalar ranking. | Visual | High |
 | `train_stat.frame_max_error` | Train-split velocity error using frame-wise max picking. | Smaller | Medium |
 | `train_stat.frame_max_std` | Dispersion of `frame_max_error`. | Smaller | Medium |
@@ -337,10 +345,13 @@ Route IV uses a frozen SFProxy model for note-wise weak supervision. The train-s
 
 | Chart name | Meaning | Better | Priority |
 | --- | --- | --- | --- |
-| `train_total_loss` | Total optimized loss for the step average. In default Route IV this is usually almost the same as `train_proxy_loss`. | Smaller | High |
-| `train_proxy_loss` | Main differentiable backend loss actually optimized by Route IV. Its formula depends on `proxy.sfproxy.loss_type`. | Smaller | High |
-| `train_proxy_note_mae` | Mean absolute error between predicted note features and target note features on valid note positions only. This is a proxy-space MAE, not raw MIDI velocity MAE. | Smaller | High |
-| `train_proxy_note_count` | Average number of valid notes in the current batch crop. This is context, not a quality metric. | Context only | Low |
+| `train_total_loss` | Total optimized loss for the step average. In default Route IV this is usually almost the same as `train_backend_loss`. | Smaller | High |
+| `train_supervised_loss` | Raw Route II-style supervised velocity loss, only present when `loss.supervised_weight > 0`. | Smaller | High |
+| `train_supervised_weighted` | Actual weighted supervised contribution added into `train_total_loss`. | Smaller | High |
+| `train_backend_loss` | Main differentiable backend loss actually optimized by Route IV. Its formula depends on `proxy.sfproxy.loss_type`. | Smaller | High |
+| `train_backend_weighted` | Actual weighted backend contribution added into `train_total_loss`. | Smaller | High |
+| `train_backend_note_mae` | Mean absolute error between predicted note features and target note features on valid note positions only. This is a backend note-feature MAE, not raw MIDI velocity MAE. | Smaller | High |
+| `train_backend_note_count` | Average number of valid notes in the current batch crop. This is context, not a quality metric. | Context only | Low |
 | `velocity_roll_comparison` | Visualization of target and predicted velocity rolls. Useful for quick sanity checking. | Visual | High |
 | `train_stat.frame_max_error` | Train-split velocity error using frame-wise max picking. | Smaller | Medium |
 | `train_stat.frame_max_std` | Dispersion of `frame_max_error`. | Smaller | Medium |
@@ -355,9 +366,9 @@ Route IV uses a frozen SFProxy model for note-wise weak supervision. The train-s
 
 How Route IV train metrics are computed:
 
-- `train_proxy_loss` is computed with the selected proxy loss: `smooth_l1`, `l1`, or `mse`
-- `train_proxy_note_mae` is always mean absolute error on valid masked notes, regardless of which proxy loss is used
-- `train_proxy_note_count` is the average valid note count in the current batch crop
+- `train_backend_loss` is computed with the selected backend loss: `smooth_l1`, `l1`, or `mse`
+- `train_backend_note_mae` is always mean absolute error on valid masked notes, regardless of which backend loss is used
+- `train_backend_note_count` is the average valid note count in the current batch crop
 
 ## What To Focus On During Ablation
 
@@ -365,8 +376,10 @@ How Route IV train metrics are computed:
 
 Look at these first:
 
-- `train_proxy_loss`
-- `train_proxy_spectral_raw`
+- `train_backend_loss`
+- `train_backend_spectral_raw`
+- `train_supervised_weighted` when you are doing mixed supervision
+- `train_backend_weighted` when you are doing mixed supervision
 - `valid_*_stat.onset_masked_error`
 - `valid_*_stat.onset_masked_std`
 - `valid_*_stat.frame_max_error`
@@ -374,8 +387,8 @@ Look at these first:
 
 Use these mostly as diagnostics:
 
-- `train_proxy_log_rms_raw`
-- `train_proxy_log_rms_weighted`
+- `train_backend_log_rms_raw`
+- `train_backend_log_rms_weighted`
 - all `*_pred` and `*_target` RMS traces
 
 Practical reading:
@@ -387,15 +400,17 @@ Practical reading:
 
 Look at these first:
 
-- `train_proxy_loss`
-- `train_proxy_note_mae`
+- `train_backend_loss`
+- `train_backend_note_mae`
+- `train_supervised_weighted` when you are doing mixed supervision
+- `train_backend_weighted` when you are doing mixed supervision
 - `valid_*_stat.onset_masked_error`
 - `valid_*_stat.onset_masked_std`
 - `valid_*_stat.frame_max_error`
 
 Use this mostly as context:
 
-- `train_proxy_note_count`
+- `train_backend_note_count`
 
 Practical reading:
 
@@ -421,14 +436,14 @@ This is the easiest file to paste into Codex when you want to discuss results wi
 
 The following backend constants are intentionally removed from wandb charts. They go to wandb summary and local `training.log` instead.
 
-- `proxy_loss_sample_rate`
-- `proxy_loss_frame_rate`
-- `proxy_proxy_frames`
-- `proxy_proxy_polyphony`
-- `proxy_renderer_sample_rate`
-- `proxy_renderer_frame_rate`
-- `proxy_renderer_segment_seconds`
-- `proxy_synth_input_source_fps`
-- `proxy_renderer_hop_length`
-- `proxy_renderer_n_fft`
-- `proxy_native_segment_seconds`
+- `backend_loss_sample_rate`
+- `backend_loss_frame_rate`
+- `backend_proxy_frames`
+- `backend_proxy_polyphony`
+- `backend_renderer_sample_rate`
+- `backend_renderer_frame_rate`
+- `backend_renderer_segment_seconds`
+- `backend_synth_input_source_fps`
+- `backend_renderer_hop_length`
+- `backend_renderer_n_fft`
+- `backend_native_segment_seconds`

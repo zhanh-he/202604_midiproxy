@@ -64,9 +64,12 @@ class DDSPPianoProxy:
         proxy_root = self._resolve_proxy_root()
         self.model = self._build_model(proxy_root)
         self.model.to(self.device)
-        self.model.eval()
         for param in self.model.parameters():
             param.requires_grad = False
+        # DDSP-Piano contains cuDNN RNN modules. We still need gradients from
+        # backend audio loss to flow back into vel_pred, so keep the frozen
+        # renderer in training mode during forward/backward.
+        self.model.train()
 
         midi_values = torch.arange(self.begin_note, self.begin_note + 88, device=self.device, dtype=torch.float32)
         self.midi_values = midi_values.view(1, 1, -1)

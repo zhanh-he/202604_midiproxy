@@ -120,8 +120,12 @@ class TranscriptionBase:
         self.input2_key = _normalized_cond_name(cfg.model.input2)
         self.input3_key = _normalized_cond_name(cfg.model.input3)
         if self.is_film:
-            from benchmarks.model_FilmUnet import FiLMUNetPretrained
-            self.model = FiLMUNetPretrained(cfg)
+            from benchmarks.model_FilmUnet import FiLMUNet, FiLMUNetPretrained
+
+            if self.model_type == "filmunet":
+                self.model = FiLMUNet(cfg)
+            else:
+                self.model = FiLMUNetPretrained(cfg)
         elif self.is_transkun:
             from benchmarks.model_TransKun import TransKunPretrained
             self.model = TransKunPretrained(cfg)

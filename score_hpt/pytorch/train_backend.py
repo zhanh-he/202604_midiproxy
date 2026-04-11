@@ -119,6 +119,20 @@ def _backend_suffix(cfg) -> str:
     return "+" + "+".join(parts)
 
 
+def _loss_weight_suffix(cfg) -> str:
+    sup_weight = float(getattr(cfg.loss, "supervised_weight", 0.0) or 0.0)
+    backend_weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
+    prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
+
+    parts = [
+        f"sup{_fmt_tag_value(f'{sup_weight:g}') or '0'}",
+        f"backend{_fmt_tag_value(f'{backend_weight:g}') or '0'}",
+    ]
+    if prior_weight > 0:
+        parts.append(f"prior{_fmt_tag_value(f'{prior_weight:g}') or '0'}")
+    return "+" + "+".join(parts)
+
+
 def _train_wandb_name(cfg):
     explicit_name = _clean_name_part(getattr(cfg.wandb, "name", ""))
     if explicit_name:
@@ -129,7 +143,8 @@ def _train_wandb_name(cfg):
     prefix = "route4" if is_diffproxy_backend(getattr(cfg.proxy, "type", "")) else "route3"
     name = (
         f"{prefix}-{cfg.model.type}-{method}"
-        f"{_cond_suffix(cfg, method)}{_backend_suffix(cfg)}-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
+        f"{_cond_suffix(cfg, method)}{_backend_suffix(cfg)}{_loss_weight_suffix(cfg)}"
+        f"-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
     )
     if comment:
         name = f"{name}-{comment}"
@@ -428,18 +443,18 @@ def _average_meter(meter: Dict[str, float], steps: int) -> Dict[str, float]:
     return {key: value / float(steps) for key, value in meter.items()}
 
 
-SUMMARY_ONLY_PROXY_KEYS = {
-    "proxy_loss_sample_rate",
-    "proxy_loss_frame_rate",
-    "proxy_proxy_frames",
-    "proxy_proxy_polyphony",
-    "proxy_renderer_sample_rate",
-    "proxy_renderer_frame_rate",
-    "proxy_renderer_segment_seconds",
-    "proxy_synth_input_source_fps",
-    "proxy_renderer_hop_length",
-    "proxy_renderer_n_fft",
-    "proxy_native_segment_seconds",
+SUMMARY_ONLY_BACKEND_KEYS = {
+    "backend_loss_sample_rate",
+    "backend_loss_frame_rate",
+    "backend_proxy_frames",
+    "backend_proxy_polyphony",
+    "backend_renderer_sample_rate",
+    "backend_renderer_frame_rate",
+    "backend_renderer_segment_seconds",
+    "backend_synth_input_source_fps",
+    "backend_renderer_hop_length",
+    "backend_renderer_n_fft",
+    "backend_native_segment_seconds",
 }
 
 
@@ -472,7 +487,7 @@ def _select_console_train_losses(statistics: Dict[str, float]) -> Dict[str, floa
     keep_keys = (
         "total_loss",
         "supervised_loss",
-        "proxy_loss",
+        "backend_loss",
         "prior_loss",
     )
     return {key: statistics[key] for key in keep_keys if key in statistics}
@@ -481,10 +496,9 @@ def _select_console_train_losses(statistics: Dict[str, float]) -> Dict[str, floa
 
 def _format_loss_line(iteration: int, values: Dict[str, Any]) -> str:
     ordered = [f"iter {iteration}"]
-    key_alias = {"proxy_loss": "backend_loss"}
-    for key in ("total_loss", "supervised_loss", "proxy_loss", "prior_loss"):
+    for key in ("total_loss", "supervised_loss", "backend_loss", "prior_loss"):
         if key in values:
-            ordered.append(f"{key_alias.get(key, key)} {_tensor_to_float(values[key]):.6f}")
+            ordered.append(f"{key} {_tensor_to_float(values[key]):.6f}")
     return " ".join(ordered)
 
 
@@ -532,7 +546,10 @@ def train(cfg):
     if not _is_direct_method(method):
         model_name = f"{model_name}+score_{method}"
     if proxy_enabled and proxy_weight > 0:
-        model_name = f"{model_name}+backend_{backend_run_tag(cfg.proxy.type)}+{_proxy_objective_name(cfg)}"
+        model_name = (
+            f"{model_name}+backend_{backend_run_tag(cfg.proxy.type)}+{_proxy_objective_name(cfg)}"
+            f"{_loss_weight_suffix(cfg)}"
+        )
     checkpoints_dir = os.path.join(cfg.exp.workspace, "checkpoints", model_name)
     logs_dir = os.path.join(cfg.exp.workspace, "logs", model_name)
     params_count, params_k, params_m = _model_param_sizes(model)
@@ -614,6 +631,7 @@ def train(cfg):
             supervised_loss = loss_fn(cfg, out, batch_torch, cond_dict=cond)
             total_loss = total_loss + supervised_weight * supervised_loss
             step_stats["supervised_loss"] = supervised_loss.detach()
+            step_stats["supervised_weighted"] = (supervised_weight * supervised_loss).detach()
 
         if prior_weight > 0:
             prior_loss = velocity_prior_loss(cfg, out, batch_torch)
@@ -629,14 +647,15 @@ def train(cfg):
             )
             if "proxy_loss" in proxy_stats:
                 total_loss = total_loss + proxy_weight * proxy_stats["proxy_loss"]
-                step_stats["proxy_loss"] = proxy_stats["proxy_loss"].detach()
+                step_stats["backend_loss"] = proxy_stats["proxy_loss"].detach()
+                step_stats["backend_weighted"] = (proxy_weight * proxy_stats["proxy_loss"]).detach()
             for key, value in proxy_stats.items():
                 if key == "proxy_loss":
                     continue
                 if key.startswith("spectral_mag_") or key.startswith("spectral_logmag_"):
                     continue
                 if torch.is_tensor(value) and value.ndim == 0:
-                    step_stats[f"proxy_{key}"] = value.detach()
+                    step_stats[f"backend_{key}"] = value.detach()
 
         if not step_stats:
             raise RuntimeError(
@@ -669,10 +688,10 @@ def train(cfg):
 
             log_payload: Dict[str, Any] = {"iteration": iteration}
             summary_updates = {
-                key: value for key, value in avg_train_stats.items() if key in SUMMARY_ONLY_PROXY_KEYS
+                key: value for key, value in avg_train_stats.items() if key in SUMMARY_ONLY_BACKEND_KEYS
             }
             for key, value in avg_train_stats.items():
-                if key not in SUMMARY_ONLY_PROXY_KEYS:
+                if key not in SUMMARY_ONLY_BACKEND_KEYS:
                     log_payload[f"train_{key}"] = value
 
             if evaluator is not None:

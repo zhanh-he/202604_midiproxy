@@ -12,6 +12,8 @@
 
 - `kaya_hpt_route3_ablation.sh`
 - `kaya_hpt_route4_ablation.sh`
+- `kaya_hpt_route3_ablation_pretrain.sh`
+- `kaya_hpt_route4_ablation_pretrain.sh`
 - `kaya_hpt_route3_single.sh`
 - `kaya_hpt_route4_single.sh`
 
@@ -111,6 +113,46 @@ sbatch kaya_scripts/kaya_hpt_route3_ablation.sh
 sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
 ```
 
+pretrain continuation：
+
+```bash
+HPT_PRETRAINED_CHECKPOINT=/abs/path/to/hpt_checkpoint.pth \
+FILMUNET_PRETRAINED_CHECKPOINT=/abs/path/to/filmunet_checkpoint.pth \
+sbatch kaya_scripts/kaya_hpt_route3_ablation_pretrain.sh
+
+HPT_PRETRAINED_CHECKPOINT=/abs/path/to/hpt_checkpoint.pth \
+FILMUNET_PRETRAINED_CHECKPOINT=/abs/path/to/filmunet_checkpoint.pth \
+sbatch kaya_scripts/kaya_hpt_route4_ablation_pretrain.sh
+```
+
+当前默认 sweep 维度：
+
+- Route III:
+  - `SEGMENTS=("2" "5")`
+  - `AUDIO_LOSSES=("piano_ssm_spectral" "piano_ssm_spectral_plus_log_rms" "piano_ssm_spectral_plus_ddsp_loudness" "piano_ssm_combined_rm")`
+  - `MODEL_TYPES=("hpt" "filmunet")`
+  - `SUP_BACKEND_PAIRS=("0.0,1.0" "0.5,0.5")`
+  - `PRIOR_WEIGHTS=("0.0" "0.01")`
+
+- Route IV:
+  - `SAMPLERS=("coverage" "mixed" "realism")`
+  - `SEGMENTS=("2" "5" "10")`
+  - `PROXY_LOSSES=("smooth_l1" "l1" "mse")`
+  - `MODEL_TYPES=("hpt" "filmunet")`
+  - `SUP_BACKEND_PAIRS=("0.0,1.0" "0.5,0.5")`
+  - `PRIOR_WEIGHTS=("0.0" "0.01")`
+
+pretrain wrapper 默认会把 `MODEL_TYPES` 切成：
+
+- `MODEL_TYPES="hpt_pretrained filmunet_pretrained"`
+
+如果你包含某个 `*_pretrained` 模型类型，就需要提供对应 checkpoint：
+
+- `HPT_PRETRAINED_CHECKPOINT=/abs/path/to/hpt_checkpoint.pth`
+- `FILMUNET_PRETRAINED_CHECKPOINT=/abs/path/to/filmunet_checkpoint.pth`
+
+如果你想手动删掉一部分 bad options，直接在脚本里注释数组项就行。
+
 interactive debug：
 
 ```bash
@@ -141,6 +183,19 @@ Kaya 脚本现在会在 scratch 副本里先删掉 repo 自带的 `score_hpt/wor
 ```bash
 SFPROXY_CKPT_KIND=best sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
 PROJECT_NAME=202604_midiproxy DATA_PROJECT=202604_midiproxy_data sbatch kaya_scripts/kaya_hpt_route3_ablation.sh
+MODEL_TYPES="hpt" SUP_BACKEND_PAIRS="0.5,0.5" PRIOR_WEIGHTS="0.0 0.01" sbatch kaya_scripts/kaya_hpt_route3_ablation.sh
+MODEL_TYPES="filmunet" SUP_BACKEND_PAIRS="0.0,1.0 0.5,0.5" PRIOR_WEIGHTS="0.0" sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
+MODEL_TYPES="hpt_pretrained" HPT_PRETRAINED_CHECKPOINT=/abs/path/to/hpt_checkpoint.pth sbatch kaya_scripts/kaya_hpt_route3_ablation_pretrain.sh
+MODEL_TYPES="filmunet_pretrained" FILMUNET_PRETRAINED_CHECKPOINT=/abs/path/to/filmunet_checkpoint.pth sbatch kaya_scripts/kaya_hpt_route4_ablation_pretrain.sh
 SEGMENT_SECONDS=5 AUDIO_LOSS=piano_ssm_spectral bash kaya_scripts/kaya_hpt_route3_single.sh
 SAMPLER=realism SEGMENT_SECONDS=5 PROXY_LOSS=l1 bash kaya_scripts/kaya_hpt_route4_single.sh
+```
+
+默认不在 Kaya sweep 里打开 BSSL / BSTL。若你之后确实想在某个批次上打开，可以手动传：
+
+```bash
+ENABLE_AUDIO_METRICS=1 \
+INSTRUMENT_PATH=/abs/path/to/your.sfz \
+AUDIO_METRIC_MAX_SEGMENTS=1 \
+sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
 ```
