@@ -16,7 +16,6 @@ module load Anaconda3/2024.06 cuda/12.4.1 gcc/12.4.0
 module list
 source activate bark_env
 
-set -euo pipefail
 
 echo "Running on host: $(hostname)"
 echo "Using GPU: ${CUDA_VISIBLE_DEVICES:-N/A}"

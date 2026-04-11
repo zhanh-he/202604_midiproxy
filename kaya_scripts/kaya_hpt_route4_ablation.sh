@@ -5,7 +5,7 @@
 #SBATCH --partition=gpu
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
 #SBATCH --array=0-215
@@ -15,9 +15,6 @@
 module load Anaconda3/2024.06 cuda/12.4.1 gcc/12.4.0
 module list
 source activate bark_env
-
-set -euo pipefail
-
 echo "Running on host: $(hostname)"
 echo "Using GPU: ${CUDA_VISIBLE_DEVICES:-N/A}"
 echo "SLURM ID: ${SLURM_ARRAY_ID:-N/A} ${SLURM_ARRAY_TASK_ID:-N/A}"

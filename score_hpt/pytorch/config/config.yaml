@@ -1,17 +1,17 @@
 wandb:
-  project: "202604_sfproxy_trial"
+  project: "202604_sfproxy"
   name: ""
   comment: "mel229"
 
 
 exp:
-  # workspace: "./workspaces" # kaya / scratch-friendly default
-  workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
+  workspace: "./workspaces" # kaya / scratch-friendly default
+  # workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
   # workspace: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/score_hpt/workspaces"
 
-  total_iteration: 20 #20_000  # 120_000 # 300_000 # 360_000
-  save_iteration: 10 #5_000    # 6_000 # 10_000
-  eval_iteration: 10 #5_000    # 6_000 # 6_000
+  total_iteration: 120_000  # 120_000 # 300_000 # 360_000
+  save_iteration: 6_000     # 6_000 # 10_000
+  eval_iteration: 6_000     # 6_000 # 6_000
 
   optim: "adam"             # "adam" | "adamw" | "ranger"
   learnrate: 1e-4           # 3e-4 # 1e-4

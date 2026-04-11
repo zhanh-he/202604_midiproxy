@@ -1,9 +1,7 @@
 #!/bin/bash
-set -euo pipefail
-
-# Interactive debug helper for one Route III run on Kaya.
+# Interactive debug helper for one Route IV run on Kaya.
 # Example:
-#   SEGMENT_SECONDS=2 AUDIO_LOSS=piano_ssm_spectral_plus_log_rms bash kaya_scripts/kaya_hpt_route3_single.sh
+#   SAMPLER=mixed SEGMENT_SECONDS=2 PROXY_LOSS=smooth_l1 bash kaya_scripts/kaya_hpt_route4_single.sh
 
 module load Anaconda3/2024.06 cuda/12.4.1 gcc/12.4.0
 module list
@@ -24,16 +22,15 @@ PRETRAINED_CHECKPOINT=${PRETRAINED_CHECKPOINT:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 PROXY_WEIGHT=${PROXY_WEIGHT:-1.0}
 
+SAMPLER=${SAMPLER:-mixed}
 SEGMENT_SECONDS=${SEGMENT_SECONDS:-2}
-AUDIO_LOSS=${AUDIO_LOSS:-piano_ssm_spectral_plus_log_rms}
-DDSP_PHASE=${DDSP_PHASE:-1}
-DDSP_CKPT_EPOCH=${DDSP_CKPT_EPOCH:-7}
-LOGRMS_WEIGHT=${LOGRMS_WEIGHT:-0.05}
-DDSP_LOUDNESS_WEIGHT=${DDSP_LOUDNESS_WEIGHT:-0.05}
+PROXY_LOSS=${PROXY_LOSS:-smooth_l1}
+SFPROXY_CKPT_KIND=${SFPROXY_CKPT_KIND:-final}
+SFPROXY_FINAL_EPOCH=${SFPROXY_FINAL_EPOCH:-199}
 
 KEEP_SCRATCH=${KEEP_SCRATCH:-1}
 RUN_STAMP=${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}
-RUN_NAME=${RUN_NAME:-route3_debug_${SEGMENT_SECONDS}s_${AUDIO_LOSS}_${RUN_STAMP}}
+RUN_NAME=${RUN_NAME:-route4_debug_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${RUN_STAMP}}
 
 SCRATCH_PARENT=${SCRATCH_PARENT:-$MYSCRATCH/${PROJECT_NAME}}
 RESULTS_PARENT=${RESULTS_PARENT:-$MYGROUP/${PROJECT_NAME}_results}
@@ -58,6 +55,46 @@ if [ "$MODEL_TYPE" = "hpt" ] && [ "$RUN_SCORE_METHOD" = "note_editor" ]; then
 fi
 INPUT3="null"
 
+sampler_dir() {
+  local sampler="$1"
+  local segment="$2"
+  case "$sampler" in
+    coverage) echo "piano_salamander_piano_coverage_v2_b0_c1_r0_s0_${segment}s_default" ;;
+    mixed) echo "piano_salamander_piano_mixed_v2_b0p3_c0p4_r0p2_s0p1_${segment}s_default" ;;
+    realism) echo "piano_salamander_piano_realism_v2_b0_c0_r1_s0_${segment}s_default" ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_sfproxy_ckpt() {
+  local sampler="$1"
+  local segment="$2"
+  local run_dir
+  local base_dir
+  local best_ckpt
+
+  run_dir="$(sampler_dir "$sampler" "$segment")" || return 1
+  base_dir="$SFPROXY_ROOT/proxy/checkpoints/salamander_piano/${run_dir}"
+
+  case "$SFPROXY_CKPT_KIND" in
+    final)
+      printf '%s/%s_e%s.ckpt\n' "$base_dir" "$run_dir" "$SFPROXY_FINAL_EPOCH"
+      ;;
+    best)
+      best_ckpt="$(find "$base_dir" -maxdepth 1 -type f -name "${run_dir}_e*_loss*.ckpt" | sort -V | tail -n 1)"
+      if [ -n "$best_ckpt" ]; then
+        printf '%s\n' "$best_ckpt"
+      else
+        printf '%s/%s_e%s.ckpt\n' "$base_dir" "$run_dir" "$SFPROXY_FINAL_EPOCH"
+      fi
+      ;;
+    *)
+      echo "Unsupported SFPROXY_CKPT_KIND='$SFPROXY_CKPT_KIND'" >&2
+      return 1
+      ;;
+  esac
+}
+
 mkdir -p "$SCRATCH" "$RESULTS"
 echo "SCRATCH is $SCRATCH"
 echo "RESULTS dir is $RESULTS"
@@ -72,16 +109,16 @@ mkdir -p "$WORKSPACE_DIR"
 
 HDF5_SRC="$DATA_ROOT/score_hpt/workspaces/hdf5s"
 HDF5_VIEW="$WORKSPACE_DIR/hdf5s"
-DDSP_ROOT="$DATA_ROOT/ddsp-piano-pytorch"
+SFPROXY_ROOT="$DATA_ROOT/synth-proxy"
 
 ln -s "$HDF5_SRC" "$HDF5_VIEW"
 
 [ -d "$HDF5_VIEW/maestro_sr22050" ] || { echo "Missing MAESTRO HDF5: $HDF5_VIEW/maestro_sr22050" >&2; exit 1; }
 [ -d "$HDF5_VIEW/smd_sr22050" ] || { echo "Missing SMD HDF5: $HDF5_VIEW/smd_sr22050" >&2; exit 1; }
 
-DDSP_CKPT="$DDSP_ROOT/workspaces_unified_${SEGMENT_SECONDS}s/models/phase_${DDSP_PHASE}/ckpts/ddsp-piano_epoch_${DDSP_CKPT_EPOCH}_params.pt"
-if [ ! -f "$DDSP_CKPT" ]; then
-  echo "Missing DDSP-Piano checkpoint: $DDSP_CKPT" >&2
+PROXY_CKPT="$(resolve_sfproxy_ckpt "$SAMPLER" "$SEGMENT_SECONDS")"
+if [ ! -f "$PROXY_CKPT" ]; then
+  echo "Missing SFProxy checkpoint: $PROXY_CKPT" >&2
   exit 1
 fi
 
@@ -90,16 +127,17 @@ echo "Model            : $MODEL_TYPE"
 echo "Score method     : $RUN_SCORE_METHOD"
 echo "Input2 / Input3  : $INPUT2 / $INPUT3"
 echo "Velocity loss    : $LOSS_TYPE"
+echo "Sampler          : $SAMPLER"
 echo "Backend seg (s)  : $SEGMENT_SECONDS"
-echo "Proxy audio loss : $AUDIO_LOSS"
-echo "DDSP checkpoint  : $DDSP_CKPT"
+echo "Proxy loss       : $PROXY_LOSS"
+echo "SFProxy ckpt     : $PROXY_CKPT"
 
 EXTRA_ARGS=()
 if [ -n "$PRETRAINED_CHECKPOINT" ]; then
   EXTRA_ARGS+=("model.pretrained_checkpoint=$PRETRAINED_CHECKPOINT")
 fi
 
-python pytorch/train_ddsp.py \
+python pytorch/train_proxy.py \
   dataset.train_set=maestro \
   dataset.test_set=maestro \
   'dataset.eval_sets=[train,maestro,smd]' \
@@ -112,13 +150,16 @@ python pytorch/train_ddsp.py \
   loss.proxy_weight="$PROXY_WEIGHT" \
   loss.velocity_prior_weight=0.0 \
   proxy.enabled=true \
-  proxy.type=diffsynth_piano \
-  proxy.project_root=../synthesizer/ddsp-piano-pytorch \
-  proxy.checkpoint="$DDSP_CKPT" \
+  proxy.type=diffproxy \
+  proxy.project_root=../synth-proxy \
+  proxy.checkpoint="$PROXY_CKPT" \
   proxy.backend_segment_seconds="$SEGMENT_SECONDS" \
-  proxy.audio_loss.type="$AUDIO_LOSS" \
-  proxy.audio_loss.piano_ssm_spectral_plus_log_rms.log_rms_weight="$LOGRMS_WEIGHT" \
-  proxy.audio_loss.piano_ssm_spectral_plus_ddsp_loudness.loudness_weight="$DDSP_LOUDNESS_WEIGHT" \
+  proxy.warmup_iterations=0 \
+  proxy.supervision.hop_size=221 \
+  proxy.sfproxy.instrument_name=salamander_piano \
+  proxy.sfproxy.loss_type="$PROXY_LOSS" \
+  proxy.sfproxy.use_gt_aligned_note_events=true \
+  proxy.sfproxy.feature.hop=221 \
   wandb.comment="$RUN_NAME" \
   "${EXTRA_ARGS[@]}"
 

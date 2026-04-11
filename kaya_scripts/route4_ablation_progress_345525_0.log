@@ -1,0 +1,19 @@
+Running on host: k031.hpc.uwa.edu.au
+Using GPU: 0
+SLURM ID: N/A 0
+SCRATCH is /scratch/ems011/zhe/202604_midiproxy/345525_0
+RESULTS dir is /group/ems011/zhe/202604_midiproxy_results/345525_0
+Copy path /home/zhe/202604_midiproxy to /scratch/ems011/zhe/202604_midiproxy/345525_0
+Experiment       : route4_coverage_2s_smooth_l1_hpt_sup0p0_backend1p0_prior0p0
+Model            : hpt
+Score method     : note_editor
+Input2 / Input3  : onset / null
+Velocity loss    : kim_bce_l1
+Supervised weight: 0.0
+Backend weight   : 1.0
+Prior weight     : 0.0
+Sampler          : coverage
+Backend seg (s)  : 2
+Backend loss     : smooth_l1
+SFProxy ckpt     : /scratch/ems011/zhe/202604_midiproxy_data/synth-proxy/proxy/checkpoints/salamander_piano/piano_salamander_piano_coverage_v2_b0_c1_r0_s0_2s_default/piano_salamander_piano_coverage_v2_b0_c1_r0_s0_2s_default_e199.ckpt
+iter 0 total_loss 2.366198 backend_loss 2.366198

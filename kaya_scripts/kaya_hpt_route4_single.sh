@@ -1,9 +1,19 @@
 #!/bin/bash
-set -euo pipefail
+#SBATCH --job-name=route4_single
+#SBATCH --output=route4_single_progress_%j.log
+#SBATCH --error=route4_single_error_%j.log
+#SBATCH --partition=gpu
+#SBATCH --ntasks=1
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --time=72:00:00
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=zhanh.he@research.uwa.edu.au
 
-# Interactive debug helper for one Route IV run on Kaya.
+# Single-job debug version of route4 ablation.
 # Example:
-#   SAMPLER=mixed SEGMENT_SECONDS=2 PROXY_LOSS=smooth_l1 bash kaya_scripts/kaya_hpt_route4_single.sh
+#   sbatch --export=ALL,SEGMENT_SECONDS=2 kaya_hpt_route4_single.sh
 
 module load Anaconda3/2024.06 cuda/12.4.1 gcc/12.4.0
 module list
@@ -13,49 +23,50 @@ echo "Running on host: $(hostname)"
 echo "Using GPU: ${CUDA_VISIBLE_DEVICES:-N/A}"
 echo "SLURM JOB ID: ${SLURM_JOB_ID:-N/A}"
 
+FOLDER_NAME=${SLURM_JOB_ID:-route4_single}
 PROJECT_NAME=${PROJECT_NAME:-202604_midiproxy}
 DATA_PROJECT=${DATA_PROJECT:-202604_midiproxy_data}
-EXECUTABLE=${EXECUTABLE:-$HOME/${PROJECT_NAME}}
-DATA_ROOT=${DATA_ROOT:-$MYSCRATCH/${DATA_PROJECT}}
+EXECUTABLE=$HOME/${PROJECT_NAME}
+SCRATCH=$MYSCRATCH/${PROJECT_NAME}/$FOLDER_NAME
+RESULTS=$MYGROUP/${PROJECT_NAME}_results/$FOLDER_NAME
 
+mkdir -p "$SCRATCH" "$RESULTS"
+echo "SCRATCH is $SCRATCH"
+echo "RESULTS dir is $RESULTS"
+
+echo "Copy path $EXECUTABLE to $SCRATCH"
+cp -r "$EXECUTABLE" "$SCRATCH"
+cd "$SCRATCH/$PROJECT_NAME/score_hpt"
+
+WORKSPACE_DIR=workspaces
+rm -rf "$WORKSPACE_DIR"
+mkdir -p "$WORKSPACE_DIR"
+
+DATA_ROOT="$MYSCRATCH/${DATA_PROJECT}"
+HDF5_SRC="$DATA_ROOT/score_hpt/workspaces/hdf5s"
+HDF5_VIEW="$WORKSPACE_DIR/hdf5s"
+SFPROXY_ROOT="$DATA_ROOT/synth-proxy"
+
+ln -s "$HDF5_SRC" "$HDF5_VIEW"
+
+[ -d "$HDF5_VIEW/maestro_sr22050" ] || { echo "Missing MAESTRO HDF5: $HDF5_VIEW/maestro_sr22050" >&2; exit 1; }
+[ -d "$HDF5_VIEW/smd_sr22050" ] || { echo "Missing SMD HDF5: $HDF5_VIEW/smd_sr22050" >&2; exit 1; }
+
+SEGMENT_SECONDS=${SEGMENT_SECONDS:-2}
 MODEL_TYPE=${MODEL_TYPE:-hpt}
 SCORE_METHOD=${SCORE_METHOD:-note_editor}
 PRETRAINED_CHECKPOINT=${PRETRAINED_CHECKPOINT:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
-PROXY_WEIGHT=${PROXY_WEIGHT:-1.0}
-
+SUPERVISED_WEIGHT=${SUPERVISED_WEIGHT:-0.0}
+BACKEND_WEIGHT=${BACKEND_WEIGHT:-1.0}
+PRIOR_WEIGHT=${PRIOR_WEIGHT:-0.0}
 SAMPLER=${SAMPLER:-mixed}
-SEGMENT_SECONDS=${SEGMENT_SECONDS:-2}
 PROXY_LOSS=${PROXY_LOSS:-smooth_l1}
 SFPROXY_CKPT_KIND=${SFPROXY_CKPT_KIND:-final}
 SFPROXY_FINAL_EPOCH=${SFPROXY_FINAL_EPOCH:-199}
-
-KEEP_SCRATCH=${KEEP_SCRATCH:-1}
-RUN_STAMP=${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}
-RUN_NAME=${RUN_NAME:-route4_debug_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${RUN_STAMP}}
-
-SCRATCH_PARENT=${SCRATCH_PARENT:-$MYSCRATCH/${PROJECT_NAME}}
-RESULTS_PARENT=${RESULTS_PARENT:-$MYGROUP/${PROJECT_NAME}_results}
-SCRATCH=${SCRATCH_PARENT}/${RUN_NAME}
-RESULTS=${RESULTS_PARENT}/${RUN_NAME}
-
-if [ "$MODEL_TYPE" != "hpt" ] && [ "$MODEL_TYPE" != "filmunet" ]; then
-  echo "Unsupported MODEL_TYPE: $MODEL_TYPE. Use hpt or filmunet." >&2
-  exit 1
-fi
-
-RUN_SCORE_METHOD="$SCORE_METHOD"
-if [ "$MODEL_TYPE" = "filmunet" ]; then
-  RUN_SCORE_METHOD="direct"
-elif [ "$RUN_SCORE_METHOD" != "direct" ] && [ "$RUN_SCORE_METHOD" != "note_editor" ]; then
-  echo "Unsupported SCORE_METHOD for $MODEL_TYPE: $RUN_SCORE_METHOD" >&2
-  exit 1
-fi
-INPUT2="null"
-if [ "$MODEL_TYPE" = "hpt" ] && [ "$RUN_SCORE_METHOD" = "note_editor" ]; then
-  INPUT2="onset"
-fi
-INPUT3="null"
+ENABLE_AUDIO_METRICS=${ENABLE_AUDIO_METRICS:-0}
+INSTRUMENT_PATH=${INSTRUMENT_PATH:-}
+AUDIO_METRIC_MAX_SEGMENTS=${AUDIO_METRIC_MAX_SEGMENTS:-4}
 
 sampler_dir() {
   local sampler="$1"
@@ -97,60 +108,80 @@ resolve_sfproxy_ckpt() {
   esac
 }
 
-mkdir -p "$SCRATCH" "$RESULTS"
-echo "SCRATCH is $SCRATCH"
-echo "RESULTS dir is $RESULTS"
-
-echo "Copy path $EXECUTABLE to $SCRATCH"
-cp -r "$EXECUTABLE" "$SCRATCH"
-cd "$SCRATCH/$PROJECT_NAME/score_hpt"
-
-WORKSPACE_DIR=./workspaces
-rm -rf "$WORKSPACE_DIR"
-mkdir -p "$WORKSPACE_DIR"
-
-HDF5_SRC="$DATA_ROOT/score_hpt/workspaces/hdf5s"
-HDF5_VIEW="$WORKSPACE_DIR/hdf5s"
-SFPROXY_ROOT="$DATA_ROOT/synth-proxy"
-
-ln -s "$HDF5_SRC" "$HDF5_VIEW"
-
-[ -d "$HDF5_VIEW/maestro_sr22050" ] || { echo "Missing MAESTRO HDF5: $HDF5_VIEW/maestro_sr22050" >&2; exit 1; }
-[ -d "$HDF5_VIEW/smd_sr22050" ] || { echo "Missing SMD HDF5: $HDF5_VIEW/smd_sr22050" >&2; exit 1; }
-
 PROXY_CKPT="$(resolve_sfproxy_ckpt "$SAMPLER" "$SEGMENT_SECONDS")"
+
+RUN_SCORE_METHOD="$SCORE_METHOD"
+if [ "$MODEL_TYPE" != "hpt" ] && [ "$MODEL_TYPE" != "filmunet" ]; then
+  echo "Unsupported MODEL_TYPE: $MODEL_TYPE. Use hpt or filmunet." >&2
+  exit 1
+fi
+if [ "$MODEL_TYPE" = "filmunet" ]; then
+  RUN_SCORE_METHOD="direct"
+elif [ "$RUN_SCORE_METHOD" != "direct" ] && [ "$RUN_SCORE_METHOD" != "note_editor" ]; then
+  echo "Unsupported SCORE_METHOD for $MODEL_TYPE: $RUN_SCORE_METHOD" >&2
+  exit 1
+fi
+MODEL_INPUT2="null"
+if [ "$MODEL_TYPE" = "hpt" ] && [ "$RUN_SCORE_METHOD" = "note_editor" ]; then
+  MODEL_INPUT2="onset"
+fi
+
 if [ ! -f "$PROXY_CKPT" ]; then
   echo "Missing SFProxy checkpoint: $PROXY_CKPT" >&2
   exit 1
 fi
+if [ -n "$PRETRAINED_CHECKPOINT" ] && [ ! -f "$PRETRAINED_CHECKPOINT" ]; then
+  echo "Pretrained checkpoint not found: $PRETRAINED_CHECKPOINT" >&2
+  exit 1
+fi
 
-echo "Run name         : $RUN_NAME"
+sup_tag=${SUPERVISED_WEIGHT/./p}
+backend_tag=${BACKEND_WEIGHT/./p}
+prior_tag=${PRIOR_WEIGHT/./p}
+EXP_TAG=${EXP_TAG:-route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_TYPE}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}}
+
+echo "Experiment       : $EXP_TAG"
 echo "Model            : $MODEL_TYPE"
 echo "Score method     : $RUN_SCORE_METHOD"
-echo "Input2 / Input3  : $INPUT2 / $INPUT3"
+echo "Input2 / Input3  : $MODEL_INPUT2 / null"
 echo "Velocity loss    : $LOSS_TYPE"
+echo "Supervised weight: $SUPERVISED_WEIGHT"
+echo "Backend weight   : $BACKEND_WEIGHT"
+echo "Prior weight     : $PRIOR_WEIGHT"
 echo "Sampler          : $SAMPLER"
 echo "Backend seg (s)  : $SEGMENT_SECONDS"
-echo "Proxy loss       : $PROXY_LOSS"
+echo "Backend loss     : $PROXY_LOSS"
 echo "SFProxy ckpt     : $PROXY_CKPT"
 
 EXTRA_ARGS=()
+if [ "$ENABLE_AUDIO_METRICS" = "1" ] || [ "$ENABLE_AUDIO_METRICS" = "true" ]; then
+  if [ -z "$INSTRUMENT_PATH" ]; then
+    echo "INSTRUMENT_PATH must be set when ENABLE_AUDIO_METRICS=1" >&2
+    exit 1
+  fi
+  EXTRA_ARGS+=(
+    "train_eval.audio_metrics.enabled=true"
+    "train_eval.audio_metrics.instrument_path=$INSTRUMENT_PATH"
+    "train_eval.audio_metrics.max_segments=$AUDIO_METRIC_MAX_SEGMENTS"
+  )
+fi
 if [ -n "$PRETRAINED_CHECKPOINT" ]; then
   EXTRA_ARGS+=("model.pretrained_checkpoint=$PRETRAINED_CHECKPOINT")
 fi
 
 python pytorch/train_proxy.py \
+  exp.workspace="$WORKSPACE_DIR" \
   dataset.train_set=maestro \
   dataset.test_set=maestro \
   'dataset.eval_sets=[train,maestro,smd]' \
   model.type="$MODEL_TYPE" \
-  model.input2="$INPUT2" \
-  model.input3="$INPUT3" \
+  model.input2="$MODEL_INPUT2" \
+  model.input3=null \
   score_informed.method="$RUN_SCORE_METHOD" \
   loss.loss_type="$LOSS_TYPE" \
-  loss.supervised_weight=0.0 \
-  loss.proxy_weight="$PROXY_WEIGHT" \
-  loss.velocity_prior_weight=0.0 \
+  loss.supervised_weight="$SUPERVISED_WEIGHT" \
+  loss.proxy_weight="$BACKEND_WEIGHT" \
+  loss.velocity_prior_weight="$PRIOR_WEIGHT" \
   proxy.enabled=true \
   proxy.type=diffproxy \
   proxy.project_root=../synth-proxy \
@@ -162,17 +193,13 @@ python pytorch/train_proxy.py \
   proxy.sfproxy.loss_type="$PROXY_LOSS" \
   proxy.sfproxy.use_gt_aligned_note_events=true \
   proxy.sfproxy.feature.hop=221 \
-  wandb.comment="$RUN_NAME" \
+  wandb.comment="$EXP_TAG" \
   "${EXTRA_ARGS[@]}"
 
-[ -d "$WORKSPACE_DIR/checkpoints" ] && cp -r "$WORKSPACE_DIR/checkpoints" "${RESULTS}/"
-[ -d "$WORKSPACE_DIR/logs" ] && cp -r "$WORKSPACE_DIR/logs" "${RESULTS}/"
+[ -d "$WORKSPACE_DIR/checkpoints" ] && mv "$WORKSPACE_DIR/checkpoints/" "${RESULTS}/"
+[ -d "$WORKSPACE_DIR/logs" ] && mv "$WORKSPACE_DIR/logs/" "${RESULTS}/"
 
-echo "Finished. Scratch kept at: $SCRATCH"
-echo "Results copied to: $RESULTS"
-
-if [ "$KEEP_SCRATCH" = "0" ]; then
-  cd "$HOME"
-  rm -rf "$SCRATCH"
-  echo "Scratch removed."
-fi
+cd "$HOME"
+rm -r "$SCRATCH"
+conda deactivate 2>/dev/null || source deactivate 2>/dev/null || deactivate 2>/dev/null || true
+echo route4_single ${SLURM_JOB_ID:-N/A} finished at "$(date)"
