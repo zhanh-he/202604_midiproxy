@@ -10,6 +10,9 @@ PROJECT_DIR="${ROOT_DIR}/score_hpt"
 
 TRAIN_SET="${TRAIN_SET:-${GUITAR_DATASET:-francoisleduc}}"
 SEGMENT_SECONDS="${SEGMENT_SECONDS:-5}"
+MODEL_TYPE="${MODEL_TYPE:-hpt}"
+SCORE_METHOD="${SCORE_METHOD:-note_editor}"
+PRETRAINED_CHECKPOINT="${PRETRAINED_CHECKPOINT:-}"
 
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
 PROXY_WEIGHT="${PROXY_WEIGHT:-1.0}"
@@ -49,6 +52,11 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [ "${MODEL_TYPE}" != "hpt" ] && [ "${MODEL_TYPE}" != "filmunet" ]; then
+  echo "Unsupported MODEL_TYPE: ${MODEL_TYPE}. Use hpt or filmunet." >&2
+  exit 1
+fi
+
 cd "${PROJECT_DIR}"
 
 required_datasets=("${TRAIN_SET}" "${TEST_SET}")
@@ -59,15 +67,32 @@ done < <(score_hpt_collect_eval_datasets "${EVAL_SETS}")
 score_hpt_prepare_required_datasets "${PYTHON_BIN}" "${required_datasets[@]}"
 score_hpt_set_dataset_profile "${TRAIN_SET}"
 
+if [ "${MODEL_TYPE}" = "filmunet" ]; then
+  SCORE_METHOD="direct"
+elif [ "${SCORE_METHOD}" != "direct" ] && [ "${SCORE_METHOD}" != "note_editor" ]; then
+  echo "Unsupported SCORE_METHOD for ${MODEL_TYPE}: ${SCORE_METHOD}" >&2
+  exit 1
+fi
+
+MODEL_INPUT2="null"
+if [ "${MODEL_TYPE}" = "hpt" ] && [ "${SCORE_METHOD}" = "note_editor" ]; then
+  MODEL_INPUT2="onset"
+fi
+
+pretrained_args=()
+if [ -n "${PRETRAINED_CHECKPOINT}" ]; then
+  pretrained_args+=("model.pretrained_checkpoint=${PRETRAINED_CHECKPOINT}")
+fi
+
 "${PYTHON_BIN}" pytorch/train_ddsp.py \
   "exp.workspace=${WORKSPACE_DIR}" \
   "dataset.train_set=${TRAIN_SET}" \
   "dataset.test_set=${TEST_SET}" \
   "dataset.eval_sets=${EVAL_SETS}" \
-  "model.type=hpt" \
-  "model.input2=onset" \
-  "model.input3=frame" \
-  "score_informed.method=note_editor" \
+  "model.type=${MODEL_TYPE}" \
+  "model.input2=${MODEL_INPUT2}" \
+  "model.input3=null" \
+  "score_informed.method=${SCORE_METHOD}" \
   "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
   "loss.proxy_weight=${PROXY_WEIGHT}" \
   "loss.velocity_prior_weight=${PRIOR_WEIGHT}" \
@@ -77,4 +102,5 @@ score_hpt_set_dataset_profile "${TRAIN_SET}"
   "proxy.checkpoint=${DDSP_CKPT}" \
   "proxy.backend_segment_seconds=${BACKEND_SEGMENT_SECONDS}" \
   "wandb.comment=${TRAIN_SET}" \
+  "${pretrained_args[@]}" \
   "${extra_args[@]}"

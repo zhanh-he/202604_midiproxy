@@ -20,8 +20,7 @@ DATA_ROOT=${DATA_ROOT:-$MYSCRATCH/${DATA_PROJECT}}
 
 MODEL_TYPE=${MODEL_TYPE:-hpt}
 SCORE_METHOD=${SCORE_METHOD:-note_editor}
-INPUT2=${INPUT2:-onset}
-INPUT3=${INPUT3:-frame}
+PRETRAINED_CHECKPOINT=${PRETRAINED_CHECKPOINT:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 PROXY_WEIGHT=${PROXY_WEIGHT:-1.0}
 
@@ -39,6 +38,24 @@ SCRATCH_PARENT=${SCRATCH_PARENT:-$MYSCRATCH/${PROJECT_NAME}}
 RESULTS_PARENT=${RESULTS_PARENT:-$MYGROUP/${PROJECT_NAME}_results}
 SCRATCH=${SCRATCH_PARENT}/${RUN_NAME}
 RESULTS=${RESULTS_PARENT}/${RUN_NAME}
+
+if [ "$MODEL_TYPE" != "hpt" ] && [ "$MODEL_TYPE" != "filmunet" ]; then
+  echo "Unsupported MODEL_TYPE: $MODEL_TYPE. Use hpt or filmunet." >&2
+  exit 1
+fi
+
+RUN_SCORE_METHOD="$SCORE_METHOD"
+if [ "$MODEL_TYPE" = "filmunet" ]; then
+  RUN_SCORE_METHOD="direct"
+elif [ "$RUN_SCORE_METHOD" != "direct" ] && [ "$RUN_SCORE_METHOD" != "note_editor" ]; then
+  echo "Unsupported SCORE_METHOD for $MODEL_TYPE: $RUN_SCORE_METHOD" >&2
+  exit 1
+fi
+INPUT2="null"
+if [ "$MODEL_TYPE" = "hpt" ] && [ "$RUN_SCORE_METHOD" = "note_editor" ]; then
+  INPUT2="onset"
+fi
+INPUT3="null"
 
 sampler_dir() {
   local sampler="$1"
@@ -109,13 +126,18 @@ fi
 
 echo "Run name         : $RUN_NAME"
 echo "Model            : $MODEL_TYPE"
-echo "Score method     : $SCORE_METHOD"
+echo "Score method     : $RUN_SCORE_METHOD"
 echo "Input2 / Input3  : $INPUT2 / $INPUT3"
 echo "Velocity loss    : $LOSS_TYPE"
 echo "Sampler          : $SAMPLER"
 echo "Backend seg (s)  : $SEGMENT_SECONDS"
 echo "Proxy loss       : $PROXY_LOSS"
 echo "SFProxy ckpt     : $PROXY_CKPT"
+
+EXTRA_ARGS=()
+if [ -n "$PRETRAINED_CHECKPOINT" ]; then
+  EXTRA_ARGS+=("model.pretrained_checkpoint=$PRETRAINED_CHECKPOINT")
+fi
 
 python pytorch/train_proxy.py \
   dataset.train_set=maestro \
@@ -124,7 +146,7 @@ python pytorch/train_proxy.py \
   model.type="$MODEL_TYPE" \
   model.input2="$INPUT2" \
   model.input3="$INPUT3" \
-  score_informed.method="$SCORE_METHOD" \
+  score_informed.method="$RUN_SCORE_METHOD" \
   loss.loss_type="$LOSS_TYPE" \
   loss.supervised_weight=0.0 \
   loss.proxy_weight="$PROXY_WEIGHT" \
@@ -140,7 +162,8 @@ python pytorch/train_proxy.py \
   proxy.sfproxy.loss_type="$PROXY_LOSS" \
   proxy.sfproxy.use_gt_aligned_note_events=true \
   proxy.sfproxy.feature.hop=221 \
-  wandb.comment="$RUN_NAME"
+  wandb.comment="$RUN_NAME" \
+  "${EXTRA_ARGS[@]}"
 
 [ -d "$WORKSPACE_DIR/checkpoints" ] && cp -r "$WORKSPACE_DIR/checkpoints" "${RESULTS}/"
 [ -d "$WORKSPACE_DIR/logs" ] && cp -r "$WORKSPACE_DIR/logs" "${RESULTS}/"

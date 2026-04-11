@@ -15,6 +15,8 @@ DDSP_CKPTS="${DDSP_CKPTS:-}"
 DDSP_PHASE="${DDSP_PHASE:-1}"
 CKPT_EPOCH="${CKPT_EPOCH:-7}"
 MODEL_TYPE="${MODEL_TYPE:-hpt}"
+SCORE_METHOD="${SCORE_METHOD:-note_editor}"
+PRETRAINED_CHECKPOINT="${PRETRAINED_CHECKPOINT:-}"
 
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
 BACKEND_WEIGHT="${BACKEND_WEIGHT:-${PROXY_WEIGHT:-1.0}}"
@@ -51,6 +53,11 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [ "${MODEL_TYPE}" != "hpt" ] && [ "${MODEL_TYPE}" != "filmunet" ]; then
+  echo "Unsupported MODEL_TYPE: ${MODEL_TYPE}. Use hpt or filmunet." >&2
+  exit 1
+fi
+
 cd "${PROJECT_DIR}"
 
 required_datasets=("${TRAIN_SET}" "${TEST_SET}")
@@ -66,14 +73,32 @@ run_one() {
   local ckpt="$2"
   local audio_loss="$3"
   local seg_tag
+  local score_method
+  local model_input2
 
   seg_tag="$(score_hpt_segment_tag "${segment}")"
+  score_method="${SCORE_METHOD}"
+  if [ "${MODEL_TYPE}" = "filmunet" ]; then
+    score_method="direct"
+  elif [ "${score_method}" != "direct" ] && [ "${score_method}" != "note_editor" ]; then
+    echo "Unsupported SCORE_METHOD for ${MODEL_TYPE}: ${score_method}" >&2
+    exit 1
+  fi
+  model_input2="null"
+  if [ "${MODEL_TYPE}" = "hpt" ] && [ "${score_method}" = "note_editor" ]; then
+    model_input2="onset"
+  fi
+  local pretrained_args=()
+  if [ -n "${PRETRAINED_CHECKPOINT}" ]; then
+    pretrained_args+=("model.pretrained_checkpoint=${PRETRAINED_CHECKPOINT}")
+  fi
 
   echo "============================================================"
   echo "Route III ablation"
   echo "Train set         : ${TRAIN_SET}"
   echo "Test set          : ${TEST_SET}"
   echo "Model             : ${MODEL_TYPE}"
+  echo "Score method      : ${score_method}"
   echo "Proxy type        : ${DIFFSYNTH_PROXY_TYPE}"
   echo "Proxy checkpoint  : ${ckpt}"
   echo "Backend seg (s)   : ${segment}"
@@ -86,9 +111,9 @@ run_one() {
     "dataset.test_set=${TEST_SET}" \
     "dataset.eval_sets=${EVAL_SETS}" \
     "model.type=${MODEL_TYPE}" \
-    "model.input2=onset" \
-    "model.input3=frame" \
-    "score_informed.method=note_editor" \
+    "model.input2=${model_input2}" \
+    "model.input3=null" \
+    "score_informed.method=${score_method}" \
     "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
     "loss.proxy_weight=${BACKEND_WEIGHT}" \
     "loss.velocity_prior_weight=${PRIOR_WEIGHT}" \
@@ -99,6 +124,7 @@ run_one() {
     "proxy.backend_segment_seconds=${segment}" \
     "proxy.audio_loss.type=${audio_loss}" \
     "wandb.comment=${TRAIN_SET}_ddsp_${seg_tag}_${audio_loss}" \
+    "${pretrained_args[@]}" \
     "${extra_args[@]}"
 }
 

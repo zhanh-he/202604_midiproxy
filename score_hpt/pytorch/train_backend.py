@@ -70,14 +70,7 @@ def _clean_name_part(value) -> str:
 
 
 def _cond_suffix(cfg, method: str) -> str:
-    if _is_direct_method(method):
-        return ""
-    conds = []
-    for value in (cfg.model.input2, cfg.model.input3):
-        text = _clean_name_part(value)
-        if text and text not in conds:
-            conds.append(text)
-    return f"+{'_'.join(conds)}" if conds else ""
+    return ""
 
 
 
@@ -95,6 +88,15 @@ def _fmt_tag_value(value) -> str:
     return text.replace(".", "p")
 
 
+def _backend_segment_tag(cfg) -> str:
+    segment_seconds = _fmt_tag_value(
+        getattr(cfg.proxy, "backend_segment_seconds", getattr(cfg.proxy, "crop_seconds", 0.0))
+    )
+    if not segment_seconds or segment_seconds == "0":
+        return ""
+    return f"{segment_seconds}s"
+
+
 def _backend_suffix(cfg) -> str:
     enabled = bool(getattr(cfg.proxy, "enabled", False))
     weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
@@ -105,17 +107,11 @@ def _backend_suffix(cfg) -> str:
     parts = [f"backend_{backend_tag}", backend_objective]
     if is_diffproxy_backend(getattr(cfg.proxy, "type", "")):
         instrument = _clean_name_part(getattr(cfg.proxy.sfproxy, "instrument_name", ""))
-        crop_seconds = _fmt_tag_value(getattr(cfg.proxy, "backend_segment_seconds", getattr(cfg.proxy, "crop_seconds", 0.0)))
         crop_mode = _clean_name_part(getattr(cfg.proxy, "crop_mode", ""))
-        prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
         if instrument:
             parts.append(instrument)
-        if crop_seconds and crop_seconds != "0":
-            parts.append(f"seg{crop_seconds}s")
         if crop_mode:
             parts.append(f"crop_{crop_mode}")
-        if prior_weight > 0:
-            parts.append(f"prior{prior_weight:g}".replace(".", "p"))
     return "+" + "+".join(parts)
 
 
@@ -139,15 +135,18 @@ def _train_wandb_name(cfg):
         return explicit_name
 
     method = _method_name(cfg.score_informed.method)
-    comment = _clean_name_part(getattr(cfg.wandb, "comment", ""))
     prefix = "route4" if is_diffproxy_backend(getattr(cfg.proxy, "type", "")) else "route3"
+    train_set = _clean_name_part(getattr(cfg.dataset, "train_set", "")) or "train"
+    segment_tag = _backend_segment_tag(cfg)
+    name_parts = [prefix, train_set]
+    if segment_tag:
+        name_parts.append(segment_tag)
+    name_parts.extend([str(cfg.model.type), method])
     name = (
-        f"{prefix}-{cfg.model.type}-{method}"
+        f"{'-'.join(name_parts)}"
         f"{_cond_suffix(cfg, method)}{_backend_suffix(cfg)}{_loss_weight_suffix(cfg)}"
         f"-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
     )
-    if comment:
-        name = f"{name}-{comment}"
     return name
 
 
@@ -411,8 +410,6 @@ def _prepare_batch(
 
 def _base_model_input(cfg, batch_data_dict, device: torch.device):
     if str(cfg.model.type) not in {"filmunet", "filmunet_pretrained"}:
-        return None
-    if getattr(cfg.model, "kim_condition", "frame") != "frame":
         return None
     if "frame_roll" not in batch_data_dict:
         return None

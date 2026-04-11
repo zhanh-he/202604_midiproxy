@@ -53,8 +53,7 @@ ln -s "$HDF5_SRC" "$HDF5_VIEW"
 
 MODEL_TYPES_STR=${MODEL_TYPES:-"hpt filmunet"}
 SCORE_METHOD=${SCORE_METHOD:-note_editor}
-INPUT2=${INPUT2:-onset}
-INPUT3=${INPUT3:-frame}
+PRETRAINED_CHECKPOINT=${PRETRAINED_CHECKPOINT:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 SUP_BACKEND_PAIRS_STR=${SUP_BACKEND_PAIRS:-"0.0,1.0 0.5,0.5"}
 PRIOR_WEIGHTS_STR=${PRIOR_WEIGHTS:-"0.0 0.01"}
@@ -69,8 +68,6 @@ AUDIO_METRIC_MAX_SEGMENTS=${AUDIO_METRIC_MAX_SEGMENTS:-4}
 read -r -a MODEL_TYPES <<< "$MODEL_TYPES_STR"
 read -r -a SUP_BACKEND_PAIRS <<< "$SUP_BACKEND_PAIRS_STR"
 read -r -a PRIOR_WEIGHTS <<< "$PRIOR_WEIGHTS_STR"
-HPT_PRETRAINED_CHECKPOINT=${HPT_PRETRAINED_CHECKPOINT:-}
-FILMUNET_PRETRAINED_CHECKPOINT=${FILMUNET_PRETRAINED_CHECKPOINT:-}
 
 SEGMENTS=("2" "5")
 AUDIO_LOSSES=(
@@ -88,37 +85,27 @@ EXP_DDSP_CKPT=()
 EXP_SUPERVISED_WEIGHT=()
 EXP_BACKEND_WEIGHT=()
 EXP_PRIOR_WEIGHT=()
-EXP_MODEL_PRETRAINED_CKPT=()
-
-resolve_model_pretrained_checkpoint() {
-  case "$1" in
-    hpt_pretrained) printf '%s\n' "$HPT_PRETRAINED_CHECKPOINT" ;;
-    filmunet_pretrained) printf '%s\n' "$FILMUNET_PRETRAINED_CHECKPOINT" ;;
-    *) printf '%s\n' "" ;;
-  esac
-}
 
 for SEGMENT_SECONDS in "${SEGMENTS[@]}"; do
   DDSP_CKPT="$DDSP_ROOT/workspaces_unified_${SEGMENT_SECONDS}s/models/phase_${DDSP_PHASE}/ckpts/ddsp-piano_epoch_${DDSP_CKPT_EPOCH}_params.pt"
   for AUDIO_LOSS in "${AUDIO_LOSSES[@]}"; do
-    for MODEL_TYPE in "${MODEL_TYPES[@]}"; do
-      for SUP_BACKEND_PAIR in "${SUP_BACKEND_PAIRS[@]}"; do
-        IFS=, read -r SUPERVISED_WEIGHT BACKEND_WEIGHT <<< "$SUP_BACKEND_PAIR"
-        for PRIOR_WEIGHT in "${PRIOR_WEIGHTS[@]}"; do
-          sup_tag=${SUPERVISED_WEIGHT/./p}
-          backend_tag=${BACKEND_WEIGHT/./p}
-          prior_tag=${PRIOR_WEIGHT/./p}
-          EXP_NAME+=("route3_${MODEL_TYPE}_${SEGMENT_SECONDS}s_${AUDIO_LOSS}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}")
-          EXP_MODEL_TYPE+=("$MODEL_TYPE")
-          EXP_SEGMENT+=("$SEGMENT_SECONDS")
-          EXP_AUDIO_LOSS+=("$AUDIO_LOSS")
-          EXP_DDSP_CKPT+=("$DDSP_CKPT")
-          EXP_SUPERVISED_WEIGHT+=("$SUPERVISED_WEIGHT")
-          EXP_BACKEND_WEIGHT+=("$BACKEND_WEIGHT")
-          EXP_PRIOR_WEIGHT+=("$PRIOR_WEIGHT")
-          EXP_MODEL_PRETRAINED_CKPT+=("$(resolve_model_pretrained_checkpoint "$MODEL_TYPE")")
+      for MODEL_TYPE in "${MODEL_TYPES[@]}"; do
+        for SUP_BACKEND_PAIR in "${SUP_BACKEND_PAIRS[@]}"; do
+          IFS=, read -r SUPERVISED_WEIGHT BACKEND_WEIGHT <<< "$SUP_BACKEND_PAIR"
+          for PRIOR_WEIGHT in "${PRIOR_WEIGHTS[@]}"; do
+            sup_tag=${SUPERVISED_WEIGHT/./p}
+            backend_tag=${BACKEND_WEIGHT/./p}
+            prior_tag=${PRIOR_WEIGHT/./p}
+            EXP_NAME+=("route3_${MODEL_TYPE}_${SEGMENT_SECONDS}s_${AUDIO_LOSS}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}")
+            EXP_MODEL_TYPE+=("$MODEL_TYPE")
+            EXP_SEGMENT+=("$SEGMENT_SECONDS")
+            EXP_AUDIO_LOSS+=("$AUDIO_LOSS")
+            EXP_DDSP_CKPT+=("$DDSP_CKPT")
+            EXP_SUPERVISED_WEIGHT+=("$SUPERVISED_WEIGHT")
+            EXP_BACKEND_WEIGHT+=("$BACKEND_WEIGHT")
+            EXP_PRIOR_WEIGHT+=("$PRIOR_WEIGHT")
+          done
         done
-      done
     done
   done
 done
@@ -138,27 +125,36 @@ DDSP_CKPT=${EXP_DDSP_CKPT[$IDX]}
 SUPERVISED_WEIGHT=${EXP_SUPERVISED_WEIGHT[$IDX]}
 BACKEND_WEIGHT=${EXP_BACKEND_WEIGHT[$IDX]}
 PRIOR_WEIGHT=${EXP_PRIOR_WEIGHT[$IDX]}
-MODEL_PRETRAINED_CKPT=${EXP_MODEL_PRETRAINED_CKPT[$IDX]}
+
+RUN_SCORE_METHOD="$SCORE_METHOD"
+if [ "$MODEL_TYPE" != "hpt" ] && [ "$MODEL_TYPE" != "filmunet" ]; then
+  echo "Unsupported MODEL_TYPE: $MODEL_TYPE. Use hpt or filmunet." >&2
+  exit 1
+fi
+if [ "$MODEL_TYPE" = "filmunet" ]; then
+  RUN_SCORE_METHOD="direct"
+elif [ "$RUN_SCORE_METHOD" != "direct" ] && [ "$RUN_SCORE_METHOD" != "note_editor" ]; then
+  echo "Unsupported SCORE_METHOD for $MODEL_TYPE: $RUN_SCORE_METHOD" >&2
+  exit 1
+fi
+MODEL_INPUT2="null"
+if [ "$MODEL_TYPE" = "hpt" ] && [ "$RUN_SCORE_METHOD" = "note_editor" ]; then
+  MODEL_INPUT2="onset"
+fi
 
 if [ ! -f "$DDSP_CKPT" ]; then
   echo "Missing DDSP-Piano checkpoint: $DDSP_CKPT" >&2
   exit 1
 fi
-if [[ "$MODEL_TYPE" == *_pretrained ]]; then
-  if [ -z "$MODEL_PRETRAINED_CKPT" ]; then
-    echo "Missing pretrained checkpoint env var for $MODEL_TYPE" >&2
-    exit 1
-  fi
-  if [ ! -f "$MODEL_PRETRAINED_CKPT" ]; then
-    echo "Pretrained checkpoint not found for $MODEL_TYPE: $MODEL_PRETRAINED_CKPT" >&2
-    exit 1
-  fi
+if [ -n "$PRETRAINED_CHECKPOINT" ] && [ ! -f "$PRETRAINED_CHECKPOINT" ]; then
+  echo "Pretrained checkpoint not found: $PRETRAINED_CHECKPOINT" >&2
+  exit 1
 fi
 
 echo "Experiment       : $EXP_TAG"
 echo "Model            : $MODEL_TYPE"
-echo "Score method     : $SCORE_METHOD"
-echo "Input2 / Input3  : $INPUT2 / $INPUT3"
+echo "Score method     : $RUN_SCORE_METHOD"
+echo "Input2 / Input3  : $MODEL_INPUT2 / null"
 echo "Velocity loss    : $LOSS_TYPE"
 echo "Supervised weight: $SUPERVISED_WEIGHT"
 echo "Backend weight   : $BACKEND_WEIGHT"
@@ -179,8 +175,8 @@ if [ "$ENABLE_AUDIO_METRICS" = "1" ] || [ "$ENABLE_AUDIO_METRICS" = "true" ]; th
     "train_eval.audio_metrics.max_segments=$AUDIO_METRIC_MAX_SEGMENTS"
   )
 fi
-if [ -n "$MODEL_PRETRAINED_CKPT" ]; then
-  EXTRA_ARGS+=("model.pretrained_checkpoint=$MODEL_PRETRAINED_CKPT")
+if [ -n "$PRETRAINED_CHECKPOINT" ]; then
+  EXTRA_ARGS+=("model.pretrained_checkpoint=$PRETRAINED_CHECKPOINT")
 fi
 
 python pytorch/train_ddsp.py \
@@ -189,9 +185,9 @@ python pytorch/train_ddsp.py \
   dataset.test_set=maestro \
   'dataset.eval_sets=[train,maestro,smd]' \
   model.type="$MODEL_TYPE" \
-  model.input2="$INPUT2" \
-  model.input3="$INPUT3" \
-  score_informed.method="$SCORE_METHOD" \
+  model.input2="$MODEL_INPUT2" \
+  model.input3=null \
+  score_informed.method="$RUN_SCORE_METHOD" \
   loss.loss_type="$LOSS_TYPE" \
   loss.supervised_weight="$SUPERVISED_WEIGHT" \
   loss.proxy_weight="$BACKEND_WEIGHT" \

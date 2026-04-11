@@ -79,21 +79,21 @@ dataset:
 # AMT modules (base model + adapter + conditioning)
 # ---------------------------
 model:
-  type: "hpt"  # hpt | hpt_pretrained | filmunet | filmunet_pretrained | hppnet | dynest
+  type: "hpt"  # main choices: hpt | filmunet
   params: {}
-  # score-inf condition selector:
-  # direct: ignore input2/input3.
-  # bilstm/scrr/dual_gated: cond = selected non-null inputs from input2/input3.
-  # note_editor: input2 must be onset; input3 is null/frame/exframe.
-  input2: null # onset | frame | exframe | null
-  input3: null # onset | frame | exframe | null
-  kim_condition: "frame" # for FiLMUNet family: frame | none
-  pretrained_checkpoint: "" # explicit ckpt path for eval/infer (all model types)
+  # Simplified training combinations in this project:
+  # hpt + direct       -> input2=null
+  # hpt + note_editor  -> input2=onset
+  # filmunet + direct  -> kim_condition=frame
+  input2: null # null | onset
+  input3: null # keep null
+  kim_condition: "frame" # kept for compatibility; FiLMUNet is fixed to frame conditioning
+  pretrained_checkpoint: "" # empty -> train from scratch, non-empty -> load before continuing
   hppnet_model_size: 128
 
 
 score_informed:
-  method: "direct"            # direct | scrr | dual_gated | note_editor | bilstm
+  method: "direct"            # direct | note_editor
   params: {}
   train_mode: "joint"         # joint | adapter_then_score | adapter_then_joint
   switch_iteration: 100_000   # phase switch point for staged modes

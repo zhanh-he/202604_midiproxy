@@ -46,18 +46,19 @@ class FiLMUNet(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        self._set_conditioning(cfg.model.kim_condition)
+        self._set_conditioning()
         self._set_runtime_config(cfg)
 
         self.model = ScoreInformedMidiVelocityEstimator(
             frames_per_second=kim_config.frames_per_second,
             classes_num=kim_config.classes_num,
         )
+        self._maybe_load_pretrained(cfg)
 
     @staticmethod
-    def _set_conditioning(kim_condition: str) -> None:
-        """FiLM U-Net supports two routes: frame-conditioned or audio-only."""
-        kim_config.condition_check = kim_condition == "frame"
+    def _set_conditioning() -> None:
+        """FiLM U-Net in this repo always uses frame conditioning."""
+        kim_config.condition_check = True
         kim_config.condition_type = "frame"
 
     @staticmethod
@@ -65,6 +66,18 @@ class FiLMUNet(nn.Module):
         kim_config.sample_rate = int(cfg.feature.sample_rate)
         kim_config.frames_per_second = int(cfg.feature.frames_per_second)
         kim_config.classes_num = int(cfg.feature.classes_num)
+
+    def _maybe_load_pretrained(self, cfg) -> None:
+        raw_path = str(getattr(cfg.model, "pretrained_checkpoint", "") or "").strip()
+        if not raw_path:
+            return
+        checkpoint_path = Path(raw_path).expanduser()
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(
+                f"FiLM U-Net pretrained checkpoint not found at {checkpoint_path}"
+            )
+        state_dict = self._prepare_state_dict(self._load_state_dict(checkpoint_path))
+        self.model.load_state_dict(state_dict, strict=True)
 
     @staticmethod
     def _align_score_time(score: Optional[torch.Tensor], target_frames: int) -> Optional[torch.Tensor]:
@@ -94,25 +107,7 @@ class FiLMUNet(nn.Module):
 
 
 class FiLMUNetPretrained(FiLMUNet):
-    """Thin wrapper around the original FiLM U-Net with pretrained weights."""
-
-    def __init__(self, cfg):
-        super().__init__(cfg)
-        checkpoint_path = self._resolve_checkpoint_path(cfg)
-        state_dict = self._prepare_state_dict(self._load_state_dict(checkpoint_path))
-        self.model.load_state_dict(state_dict, strict=True)
-
-    @staticmethod
-    def _resolve_checkpoint_path(cfg) -> Path:
-        raw_path = str(getattr(cfg.model, "pretrained_checkpoint", "")).strip()
-        if not raw_path:
-            raise ValueError("filmunet_pretrained requires model.pretrained_checkpoint to be set.")
-        ckpt_path = Path(raw_path).expanduser()
-        if not ckpt_path.is_file():
-            raise FileNotFoundError(
-                f"Pretrained FiLM U-Net checkpoint not found at {ckpt_path}"
-            )
-        return ckpt_path
+    """Compatibility alias of FiLMUNet."""
 
     @staticmethod
     def _load_state_dict(checkpoint_path: Path) -> dict:

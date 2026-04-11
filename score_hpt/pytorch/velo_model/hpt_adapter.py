@@ -209,6 +209,16 @@ def _load_hpt_pretrained_weights(model: nn.Module, checkpoint_path: Path) -> Non
     model.load_state_dict(model_state, strict=True)
 
 
+def _maybe_load_hpt_pretrained_weights(model: nn.Module, cfg, model_label: str = "hpt") -> None:
+    checkpoint_path = resolve_pretrained_checkpoint(
+        getattr(cfg.model, "pretrained_checkpoint", ""),
+        model_label=model_label,
+        required=False,
+    )
+    if checkpoint_path is not None:
+        _load_hpt_pretrained_weights(model, checkpoint_path)
+
+
 @dataclass
 class HPTKeySpec:
     dict_keys: Optional[Dict[str, str]] = None
@@ -227,6 +237,7 @@ class HPTAdapter(BaseAdapter):
             if cfg is None:
                 raise ValueError("HPTAdapter: cfg is required when model is None.")
             model = Single_Velocity_HPT(cfg)
+            _maybe_load_hpt_pretrained_weights(model, cfg, model_label="hpt")
         super().__init__(model=model)
         ks = keyspec or {}
         self.keyspec = HPTKeySpec(dict_keys=ks.get("dict_keys", None))
@@ -285,14 +296,4 @@ class HPTPretrainedAdapter(HPTAdapter):
         keyspec: Optional[Dict[str, Any]] = None,
         keep_extra: bool = True,
     ):
-        if model is None:
-            if cfg is None:
-                raise ValueError("HPTPretrainedAdapter: cfg is required when model is None.")
-            model = Single_Velocity_HPT(cfg)
-            checkpoint_path = resolve_pretrained_checkpoint(
-                getattr(cfg.model, "pretrained_checkpoint", ""),
-                model_label="hpt_pretrained",
-                required=True,
-            )
-            _load_hpt_pretrained_weights(model, checkpoint_path)
         super().__init__(model=model, cfg=cfg, keyspec=keyspec, keep_extra=keep_extra)
