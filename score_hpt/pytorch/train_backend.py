@@ -119,19 +119,18 @@ def _backend_suffix(cfg) -> str:
     return "+" + "+".join(parts)
 
 
-
-
 def _train_wandb_name(cfg):
     explicit_name = _clean_name_part(getattr(cfg.wandb, "name", ""))
     if explicit_name:
         return explicit_name
 
     method = _method_name(cfg.score_informed.method)
+    comment = _clean_name_part(getattr(cfg.wandb, "comment", ""))
+    prefix = "route4" if is_diffproxy_backend(getattr(cfg.proxy, "type", "")) else "route3"
     name = (
-        f"train-{cfg.model.type}-{method}"
+        f"{prefix}-{cfg.model.type}-{method}"
         f"{_cond_suffix(cfg, method)}{_backend_suffix(cfg)}-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
     )
-    comment = _clean_name_part(getattr(cfg.wandb, "comment", ""))
     if comment:
         name = f"{name}-{comment}"
     return name

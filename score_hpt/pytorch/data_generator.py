@@ -168,18 +168,10 @@ def _normalize_aligned_dataset_name(flag):
     return str(flag).strip().lower()
 
 
-def _resolve_aligned_hdf5_dir(workspace, sample_rate, dataset_name):
+def _resolve_hdf5_dir(workspace, sample_rate, dataset_name):
     sr_tag = f"sr{int(sample_rate)}"
     hdf5_root = os.path.join(workspace, "hdf5s")
     return os.path.join(hdf5_root, f"{dataset_name}_{sr_tag}")
-
-
-def _resolve_francoisleduc_hdf5_dir(workspace, sample_rate):
-    return _resolve_aligned_hdf5_dir(workspace, sample_rate, "francoisleduc")
-
-
-def _resolve_gaps_hdf5_dir(workspace, sample_rate):
-    return _resolve_aligned_hdf5_dir(workspace, sample_rate, "gaps")
 
 
 def _read_francoisleduc_metadata(metadata_path):
@@ -250,7 +242,7 @@ class Maestro_Dataset(object):
         """
         self.cfg = cfg
         self.random_state = np.random.RandomState(cfg.exp.random_seed)
-        self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"maestro_sr{int(cfg.feature.sample_rate)}")
+        self.hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "maestro")
         self.segment_samples = int(cfg.feature.sample_rate * cfg.feature.segment_seconds)
         # Used for processing MIDI events to target | GroundTruth
         self.target_processor = TargetProcessor(cfg.feature.segment_seconds, cfg)
@@ -298,7 +290,7 @@ class MAPS_Dataset(object):
         """
         self.cfg = cfg
         self.random_state = np.random.RandomState(cfg.exp.random_seed)
-        self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"maps_sr{int(cfg.feature.sample_rate)}")
+        self.hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "maps")
         self.segment_samples = int(cfg.feature.sample_rate * cfg.feature.segment_seconds)
         # Used for processing MIDI events to target | GroundTruth
         self.target_processor = TargetProcessor(cfg.feature.segment_seconds, cfg)
@@ -331,7 +323,7 @@ class SMD_Dataset(object):
         """
         self.cfg = cfg
         self.random_state = np.random.RandomState(cfg.exp.random_seed)
-        self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"smd_sr{int(cfg.feature.sample_rate)}")
+        self.hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "smd")
         self.segment_samples = int(cfg.feature.sample_rate * cfg.feature.segment_seconds)
         # Used for processing MIDI events to target | GroundTruth
         self.target_processor = TargetProcessor(cfg.feature.segment_seconds, cfg)
@@ -362,7 +354,7 @@ class _AlignedMidiHdf5Dataset(object):
         self.cfg = cfg
         self.dataset_name = str(dataset_name)
         self.random_state = np.random.RandomState(cfg.exp.random_seed)
-        self.hdf5s_dir = _resolve_aligned_hdf5_dir(
+        self.hdf5s_dir = _resolve_hdf5_dir(
             cfg.exp.workspace,
             cfg.feature.sample_rate,
             self.dataset_name,
@@ -399,7 +391,7 @@ def pack_maestro_dataset_to_hdf5(cfg):
     dataset_dir = cfg.dataset.maestro_dir
     csv_path = os.path.join(dataset_dir, "maestro-v3.0.0.csv")
     dataset_name = f"maestro_{_sr_tag(cfg)}"
-    waveform_hdf5s_dir = os.path.join(cfg.exp.workspace, "hdf5s", dataset_name)
+    waveform_hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "maestro")
     logs_dir = os.path.join(cfg.exp.workspace, "logs", f"{get_filename(__file__)}_{dataset_name}")
     create_logging(logs_dir, filemode="w")
     logging.info(f"Packing MAESTRO dataset: {dataset_dir}")
@@ -467,7 +459,7 @@ def pack_maps_dataset_to_hdf5(cfg):
     dataset_dir = cfg.dataset.maps_dir
     pianos = ["ENSTDkCl", "ENSTDkAm"]
     dataset_name = f"maps_{_sr_tag(cfg)}"
-    waveform_hdf5s_dir = os.path.join(cfg.exp.workspace, "hdf5s", dataset_name)
+    waveform_hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "maps")
     logs_dir = os.path.join(cfg.exp.workspace, "logs", f"{get_filename(__file__)}_{dataset_name}")
     create_logging(logs_dir, filemode="w")
     logging.info(f"Packing MAPS dataset: {dataset_dir}")
@@ -523,7 +515,7 @@ def pack_maps_dataset_to_hdf5(cfg):
 def pack_smd_dataset_to_hdf5(cfg):
     dataset_dir = cfg.dataset.smd_dir
     dataset_name = f"smd_{_sr_tag(cfg)}"
-    waveform_hdf5s_dir = os.path.join(cfg.exp.workspace, "hdf5s", dataset_name)
+    waveform_hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "smd")
     logs_dir = os.path.join(cfg.exp.workspace, "logs", f"{get_filename(__file__)}_{dataset_name}")
     create_logging(logs_dir, filemode="w")
     logging.info(f"Packing SMD dataset: {dataset_dir}")
@@ -586,7 +578,7 @@ def pack_francoisleduc_dataset_to_hdf5(cfg):
     rows = _read_francoisleduc_metadata(metadata_path)
 
     dataset_name = f"francoisleduc_{_sr_tag(cfg)}"
-    waveform_hdf5s_dir = os.path.join(cfg.exp.workspace, "hdf5s", dataset_name)
+    waveform_hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "francoisleduc")
     logs_dir = os.path.join(cfg.exp.workspace, "logs", f"{get_filename(__file__)}_{dataset_name}")
     create_logging(logs_dir, filemode="w")
     logging.info(f"Packing FrancoisLeduc dataset: {dataset_dir}")
@@ -649,7 +641,7 @@ def pack_gaps_dataset_to_hdf5(cfg):
     rows = _read_gaps_metadata(metadata_path)
 
     dataset_name = f"gaps_{_sr_tag(cfg)}"
-    waveform_hdf5s_dir = os.path.join(cfg.exp.workspace, "hdf5s", dataset_name)
+    waveform_hdf5s_dir = _resolve_hdf5_dir(cfg.exp.workspace, cfg.feature.sample_rate, "gaps")
     logs_dir = os.path.join(cfg.exp.workspace, "logs", f"{get_filename(__file__)}_{dataset_name}")
     create_logging(logs_dir, filemode="w")
     logging.info(f"Packing GAPS dataset: {dataset_dir}")
@@ -811,29 +803,12 @@ class Sampler(object):
         """
         assert split in ['train', 'validation', 'test']
         self.is_eval = is_eval
-        # Point test/eval to the same workspace root used by packing
-        sr_tag = f"sr{int(cfg.feature.sample_rate)}"
         dataset_name = _normalize_aligned_dataset_name(is_eval if split == "test" else cfg.dataset.train_set)
-        if split == "test":
-            # Evaluate against a specific dataset name passed via is_eval (e.g., "maestro"|"smd"|"maps")
-            if dataset_name in {"francoisleduc", "gaps"}:
-                self.hdf5s_dir = _resolve_aligned_hdf5_dir(
-                    cfg.exp.workspace,
-                    cfg.feature.sample_rate,
-                    dataset_name,
-                )
-            else:
-                self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"{dataset_name}_{sr_tag}")
-        else:
-            # Train/validation use configured train_set, suffixed by sample rate
-            if dataset_name in {"francoisleduc", "gaps"}:
-                self.hdf5s_dir = _resolve_aligned_hdf5_dir(
-                    cfg.exp.workspace,
-                    cfg.feature.sample_rate,
-                    dataset_name,
-                )
-            else:
-                self.hdf5s_dir = os.path.join(cfg.exp.workspace, 'hdf5s', f"{dataset_name}_{sr_tag}")
+        self.hdf5s_dir = _resolve_hdf5_dir(
+            cfg.exp.workspace,
+            cfg.feature.sample_rate,
+            dataset_name,
+        )
         self.segment_seconds = cfg.feature.segment_seconds
         self.hop_seconds = cfg.feature.hop_seconds
         self.sample_rate = cfg.feature.sample_rate

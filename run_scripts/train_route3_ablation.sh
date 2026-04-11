@@ -98,7 +98,7 @@ run_one() {
     "proxy.checkpoint=${ckpt}" \
     "proxy.backend_segment_seconds=${segment}" \
     "proxy.audio_loss.type=${audio_loss}" \
-    "wandb.comment=route3_${TRAIN_SET}_ddsp_${seg_tag}_${audio_loss}" \
+    "wandb.comment=${TRAIN_SET}_ddsp_${seg_tag}_${audio_loss}" \
     "${extra_args[@]}"
 }
 

@@ -142,7 +142,7 @@ run_one() {
     "proxy.sfproxy.loss_type=${loss}" \
     "proxy.sfproxy.use_gt_aligned_note_events=true" \
     "proxy.sfproxy.feature.hop=221" \
-    "wandb.comment=route4_${TRAIN_SET}_${sampler}_${seg_tag}_${loss}" \
+    "wandb.comment=${TRAIN_SET}_${sampler}_${seg_tag}_${loss}" \
     "${extra_args[@]}"
 }
 

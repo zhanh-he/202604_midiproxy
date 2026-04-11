@@ -78,5 +78,5 @@ score_hpt_set_dataset_profile "${TRAIN_SET}"
   "proxy.project_root=${DDSP_PROJECT_ROOT}" \
   "proxy.checkpoint=${DDSP_CKPT}" \
   "proxy.backend_segment_seconds=${BACKEND_SEGMENT_SECONDS}" \
-  "wandb.comment=route3_${TRAIN_SET}" \
+  "wandb.comment=${TRAIN_SET}" \
   "${extra_args[@]}"

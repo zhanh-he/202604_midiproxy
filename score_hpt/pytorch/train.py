@@ -59,11 +59,12 @@ def _train_wandb_name(cfg) -> str:
         return explicit_name
 
     method = _method_name(cfg.score_informed.method)
+    comment = _clean_name_part(getattr(cfg.wandb, "comment", ""))
+    prefix = "route2" if float(getattr(cfg.loss, "supervised_weight", 0.0) or 0.0) > 0 else "train"
     name = (
-        f"train-{cfg.model.type}-{method}"
+        f"{prefix}-{cfg.model.type}-{method}"
         f"{_cond_suffix(cfg, method)}-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
     )
-    comment = _clean_name_part(getattr(cfg.wandb, "comment", ""))
     if comment:
         name = f"{name}-{comment}"
     return name

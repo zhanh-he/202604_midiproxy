@@ -9,9 +9,9 @@ exp:
   workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
   # workspace: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/score_hpt/workspaces"
 
-  total_iteration: 20_000  # 200_000 # 300_000 # 360_000
-  save_iteration: 10_000    # 6_000 # 6_000
-  eval_iteration: 10_000    # 6_000 # 6_000
+  total_iteration: 20_000  # 120_000 # 300_000 # 360_000
+  save_iteration: 5_000    # 6_000 # 10_000
+  eval_iteration: 5_000    # 6_000 # 6_000
 
   optim: "adam"             # "adam" | "adamw" | "ranger"
   learnrate: 1e-4           # 3e-4 # 1e-4
@@ -64,8 +64,8 @@ dataset:
   has_velocity_target: true
 
   # Use the same workspace root as features.py packs to
-  train_h5: "${exp.workspace}/hdf5s/${dataset.train_set}"
-  test_h5: "${exp.workspace}/hdf5s/${dataset.test_set}"
+  train_h5: "${exp.workspace}/hdf5s/${dataset.train_set}_sr${feature.sample_rate}"
+  test_h5: "${exp.workspace}/hdf5s/${dataset.test_set}_sr${feature.sample_rate}"
 
   # Provide dataset dir to process the features.py
   smd_dir: "../../Dataset/SMD"
