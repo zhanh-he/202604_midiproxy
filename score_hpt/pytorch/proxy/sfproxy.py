@@ -460,22 +460,28 @@ class SFProxyObjective:
         return torch.stack(feats, dim=0)
 
     def _masked_loss(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        weights = mask.to(pred.dtype).unsqueeze(-1)
-        denom = torch.clamp(weights.sum(), min=1.0)
+        valid = mask.unsqueeze(-1).expand_as(pred)
+        valid = valid & torch.isfinite(pred) & torch.isfinite(target)
+        if not torch.any(valid):
+            zero = pred.new_zeros(())
+            return zero, zero
+
+        pred_valid = pred.masked_select(valid)
+        target_valid = target.masked_select(valid)
         loss_name = self.loss_type.lower()
         loss = {
             'smooth_l1': lambda: F.smooth_l1_loss(
-                pred * weights,
-                target * weights,
-                reduction='sum',
+                pred_valid,
+                target_valid,
+                reduction='mean',
                 beta=self.loss_beta,
-            ) / denom,
-            'l1': lambda: torch.abs(pred - target).mul(weights).sum() / denom,
-            'mse': lambda: (pred - target).pow(2).mul(weights).sum() / denom,
-            'l2': lambda: (pred - target).pow(2).mul(weights).sum() / denom,
+            ),
+            'l1': lambda: torch.abs(pred_valid - target_valid).mean(),
+            'mse': lambda: (pred_valid - target_valid).pow(2).mean(),
+            'l2': lambda: (pred_valid - target_valid).pow(2).mean(),
         }[loss_name]()
 
-        mae = torch.abs(pred - target).mul(weights).sum() / denom
+        mae = torch.abs(pred_valid - target_valid).mean()
         return loss, mae
 
     def compute(self, batch_data_dict, audio, vel_pred, iteration: int) -> Dict[str, torch.Tensor]:

@@ -22,6 +22,8 @@ class SFProxyGradientTest(unittest.TestCase):
         obj.max_notes = 512
         obj.onset_threshold = 0.5
         obj.frame_threshold = 0.5
+        obj.loss_type = "smooth_l1"
+        obj.loss_beta = 1.0
         return obj
 
     def test_note_events_path_preserves_velocity_gradient(self):
@@ -47,6 +49,23 @@ class SFProxyGradientTest(unittest.TestCase):
 
         self.assertIsNotNone(vel_pred.grad)
         self.assertGreater(float(vel_pred.grad.abs().sum().item()), 0.0)
+
+    def test_masked_loss_ignores_nonfinite_entries(self):
+        obj = self._make_objective_stub()
+        pred = torch.tensor([[[1.0, float("nan")], [2.0, 3.0]]], requires_grad=True)
+        target = torch.tensor([[[0.0, 5.0], [1.0, float("nan")]]])
+        mask = torch.tensor([[True, True]])
+
+        loss, mae = SFProxyObjective._masked_loss(obj, pred, target, mask)
+
+        self.assertTrue(torch.isfinite(loss))
+        self.assertTrue(torch.isfinite(mae))
+        self.assertAlmostEqual(float(loss.item()), 0.5, places=6)
+        self.assertAlmostEqual(float(mae.item()), 1.0, places=6)
+
+        loss.backward()
+        self.assertIsNotNone(pred.grad)
+        self.assertTrue(torch.isfinite(pred.grad).all())
 
     def test_roll_fallback_preserves_velocity_gradient(self):
         obj = self._make_objective_stub()

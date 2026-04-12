@@ -81,6 +81,37 @@ class FiLMUNet(nn.Module):
         self.model.load_state_dict(state_dict, strict=True)
 
     @staticmethod
+    def _load_state_dict(checkpoint_path: Path) -> dict:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        if isinstance(checkpoint, dict):
+            if "model" in checkpoint:
+                checkpoint = checkpoint["model"]
+            elif "state_dict" in checkpoint:
+                checkpoint = checkpoint["state_dict"]
+        keys = list(checkpoint.keys())
+        if keys and all(k.startswith("module.") for k in keys):
+            checkpoint = {k.replace("module.", "", 1): v for k, v in checkpoint.items()}
+        keys = list(checkpoint.keys())
+        if keys and all(k.startswith("model.") for k in keys):
+            checkpoint = {k.replace("model.", "", 1): v for k, v in checkpoint.items()}
+        return checkpoint
+
+    def _prepare_state_dict(self, state_dict: dict) -> dict:
+        prepared = {
+            k: v
+            for k, v in state_dict.items()
+            if not (
+                k.startswith("spectrogram_extractor")
+                or k.startswith("logmel_extractor")
+            )
+        }
+        local_state = self.model.state_dict()
+        for key, tensor in local_state.items():
+            if key.startswith("spectrogram_extractor") or key.startswith("logmel_extractor"):
+                prepared[key] = tensor.detach().clone()
+        return prepared
+
+    @staticmethod
     def _align_score_time(score: Optional[torch.Tensor], target_frames: int) -> Optional[torch.Tensor]:
         if score is None or score.dim() != 3 or score.size(1) == target_frames:
             return score
@@ -109,35 +140,3 @@ class FiLMUNet(nn.Module):
 
 class FiLMUNetPretrained(FiLMUNet):
     """Compatibility alias of FiLMUNet."""
-
-    @staticmethod
-    def _load_state_dict(checkpoint_path: Path) -> dict:
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
-        if isinstance(checkpoint, dict):
-            if "model" in checkpoint:
-                checkpoint = checkpoint["model"]
-            elif "state_dict" in checkpoint:
-                checkpoint = checkpoint["state_dict"]
-        keys = list(checkpoint.keys())
-        if keys and all(k.startswith("module.") for k in keys):
-            checkpoint = {k.replace("module.", "", 1): v for k, v in checkpoint.items()}
-        keys = list(checkpoint.keys())
-        if keys and all(k.startswith("model.") for k in keys):
-            checkpoint = {k.replace("model.", "", 1): v for k, v in checkpoint.items()}
-        return checkpoint
-
-    def _prepare_state_dict(self, state_dict: dict) -> dict:
-        """Preserve deterministic frontend weights while enforcing strict loading."""
-        prepared = {
-            k: v
-            for k, v in state_dict.items()
-            if not (
-                k.startswith("spectrogram_extractor")
-                or k.startswith("logmel_extractor")
-            )
-        }
-        local_state = self.model.state_dict()
-        for key, tensor in local_state.items():
-            if key.startswith("spectrogram_extractor") or key.startswith("logmel_extractor"):
-                prepared[key] = tensor.detach().clone()
-        return prepared

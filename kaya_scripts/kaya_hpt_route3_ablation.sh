@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
-#SBATCH --array=0-31
+#SBATCH --array=0-3
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=zhanh.he@research.uwa.edu.au
 
@@ -51,13 +51,13 @@ ln -s "$HDF5_SRC" "$HDF5_VIEW"
 ln -s "$PRETRAINED_ROOT_SRC" "$PRETRAINED_ROOT_VIEW"
 
 # frontend
-MODEL_VARIANTS_STR=${MODEL_VARIANTS:-"hpt_note_editor filmunet"}
-FRONTEND_PRETRAIN_MODES_STR=${FRONTEND_PRETRAIN_MODES:-"scratch route2_piano_auto"}
+MODEL_VARIANTS_STR=${MODEL_VARIANTS:-"filmunet"} # "hpt_note_editor filmunet"
+FRONTEND_PRETRAIN_MODES_STR=${FRONTEND_PRETRAIN_MODES:-"route2_piano_auto"} # "scratch route2_piano_auto"
 FRONTEND_PRETRAINED=${FRONTEND_PRETRAINED:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 
 # backend
-SEGMENTS=("2" "5")
+SEGMENTS=("2") #  "5"
 AUDIO_LOSSES=(
   "piano_ssm_spectral"
 )
