@@ -88,7 +88,7 @@ def draw_piano_keyboard(ax: plt.Axes, pitch_min: int, pitch_max: int) -> None:
     """Draw a simple keyboard strip aligned to MIDI semitone positions."""
     ax.set_xlim(float(pitch_min) - 0.5, float(pitch_max) + 0.5)
     ax.set_ylim(0.0, 1.0)
-    ax.set_facecolor("#f0f0f0")
+    ax.set_facecolor("white")
 
     for pitch in range(int(pitch_min), int(pitch_max) + 1):
         x0 = float(pitch) - 0.5
@@ -122,13 +122,13 @@ def draw_piano_keyboard(ax: plt.Axes, pitch_min: int, pitch_max: int) -> None:
 
     ticks, labels = _pitch_ticks(pitch_min, pitch_max)
     ax.set_xticks(ticks)
-    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_xticklabels(labels, fontsize=12)
     ax.set_yticks([])
     ax.tick_params(axis="x", length=0, pad=2)
     for side in ("top", "left", "right"):
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color("#555555")
-    ax.set_xlabel("Pitch", fontsize=12)
+    ax.set_xlabel("Pitch", fontsize=15)
 
 
 def _velocity_norm(df: pd.DataFrame) -> mpl.colors.Normalize:
@@ -158,13 +158,13 @@ def _panel_y_limits(values: np.ndarray, mode: str) -> Tuple[float, float]:
 
 
 def _style_main_axis(ax: plt.Axes, ylabel: str, ylim: Tuple[float, float]) -> None:
-    ax.set_facecolor("#efefef")
-    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_facecolor("white")
+    ax.set_ylabel(ylabel, fontsize=15)
     ax.set_xlim(ax.get_xlim())
     ax.set_ylim(*ylim)
     ax.grid(True, which="major", axis="both", linestyle=(0, (1.2, 3.2)), color="#9c9c9c", alpha=0.7)
     ax.tick_params(axis="x", labelbottom=False)
-    ax.tick_params(axis="y", labelsize=10)
+    ax.tick_params(axis="y", labelsize=12)
     for side in ax.spines:
         ax.spines[side].set_color("#666666")
 
@@ -223,7 +223,7 @@ def _plot_metric_panel(
             float(x_valid[idx]) + 0.25,
             float(y_valid[idx]),
             f"{int(velocity)}",
-            fontsize=8,
+            fontsize=12,
             color="#2f2f2f",
             alpha=0.75,
             va="center",
@@ -236,7 +236,7 @@ def _plot_metric_panel(
     ylim_mode = "db" if "db" in metric_col else "sone"
     ylim = _panel_y_limits(np.asarray(all_values, dtype=np.float64), mode=ylim_mode)
     _style_main_axis(ax, ylabel=ylabel, ylim=ylim)
-    ax.set_title(title, fontsize=17, weight="bold", pad=24)
+    ax.set_title(title, fontsize=19, weight="bold", pad=24)
 
     cbar = plt.colorbar(
         mpl.cm.ScalarMappable(norm=norm, cmap=cmap),
@@ -244,8 +244,8 @@ def _plot_metric_panel(
         fraction=0.028,
         pad=0.015,
     )
-    cbar.ax.tick_params(labelsize=9)
-    cbar.set_label("MIDI velocity", fontsize=10)
+    cbar.ax.tick_params(labelsize=12)
+    cbar.set_label("MIDI velocity", fontsize=15)
 
     draw_piano_keyboard(kax, pitch_min=pitch_min, pitch_max=pitch_max)
 
@@ -261,7 +261,7 @@ def plot_soundfont_response_figure(
     highlight_velocity_step: int = 10,
     db_metric_col: str = "bark_peak_db_avg",
     sone_metric_col: str = "ntot_peak_sone",
-    figsize: Tuple[float, float] = (16.0, 16.0),
+    figsize: Tuple[float, float] = (16.0, 10.5),
 ) -> plt.Figure:
     df = _prepare_dataframe(df)
     pitch_min = int(df["pitch"].min()) if pitch_min is None else int(pitch_min)
@@ -278,7 +278,7 @@ def plot_soundfont_response_figure(
     cmap = mpl.cm.get_cmap("YlOrRd")
     norm = _velocity_norm(df)
 
-    fig = plt.figure(figsize=figsize, facecolor="#d9d9d9")
+    fig = plt.figure(figsize=figsize, facecolor="white")
     outer = fig.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.36)
 
     top = outer[0].subgridspec(2, 1, height_ratios=[12, 2], hspace=0.0)
@@ -301,7 +301,7 @@ def plot_soundfont_response_figure(
         highlight_velocities=highlight_velocities,
         pitch_min=pitch_min,
         pitch_max=pitch_max,
-        label_pitch=max(pitch_min, min(pitch_max, 48)),
+        label_pitch=max(pitch_min, min(pitch_max, 59)),
     )
 
     _plot_metric_panel(
@@ -316,10 +316,10 @@ def plot_soundfont_response_figure(
         highlight_velocities=highlight_velocities,
         pitch_min=pitch_min,
         pitch_max=pitch_max,
-        label_pitch=max(pitch_min, min(pitch_max, 48)),
+        label_pitch=max(pitch_min, min(pitch_max, 59)),
     )
 
-    fig.suptitle(title, fontsize=23, weight="bold", y=0.98)
+    fig.suptitle(title, fontsize=25, weight="bold", y=0.98)
 
     if output_path is not None:
         output_path = Path(output_path)
