@@ -854,14 +854,12 @@ class PianoSSMSpectralLoss(_BaseAudioLoss):
             if self.mag_weight > 0:
                 loss_mag = self.mag_weight * self.mean_difference(target_mag, pred_mag, weights=weights)
                 total_loss = total_loss + loss_mag
-                stats[f"mag_{size}"] = loss_mag.detach()
 
             if self.logmag_weight > 0:
                 target_logmag = self.safe_log(target_mag)
                 pred_logmag = self.safe_log(pred_mag)
                 loss_logmag = self.logmag_weight * self.mean_difference(target_logmag, pred_logmag, weights=weights)
                 total_loss = total_loss + loss_logmag
-                stats[f"logmag_{size}"] = loss_logmag.detach()
 
         stats.update(self._audio_stats(pred_audio, target_audio))
         return total_loss, stats

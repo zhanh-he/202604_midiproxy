@@ -2,11 +2,11 @@ wandb:
   project: "202604_sfproxy"
   name: ""
   comment: "mel229"
-  tag: "5090" #5090 3090 kaya
+  tag: "kaya" #5090 3090 kaya
 
 exp:
-  # workspace: "./workspaces" # kaya / scratch-friendly default
-  workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
+  workspace: "./workspaces" # kaya / scratch-friendly default
+  # workspace: "/media/mengh/SharedData/zhanh/202604_midiproxy_data/score_hpt/workspaces"
   # workspace: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/score_hpt/workspaces"
 
   total_iteration: 30_000  # 120_000 # 300_000 # 360_000

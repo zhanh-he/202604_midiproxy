@@ -92,3 +92,9 @@ def select_prefixed_substate(
             return {key: candidate[key] for key in required_keys}
 
     return {key: state_dict[key] for key in required_keys if key in state_dict}
+
+
+def load_score_wrapper_state(model: torch.nn.Module, checkpoint_path: Path) -> None:
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = unwrap_checkpoint_state_dict(checkpoint)
+    model.load_state_dict(state_dict, strict=True)

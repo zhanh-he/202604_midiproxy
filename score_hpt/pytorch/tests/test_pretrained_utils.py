@@ -14,6 +14,7 @@ if str(PYTORCH_DIR) not in sys.path:
 
 from velo_model.pretrained_utils import (
     get_frontend_pretrained_value,
+    load_score_wrapper_state,
     resolve_frontend_pretrained_checkpoint,
     resolve_pretrained_checkpoint,
     select_prefixed_substate,
@@ -86,7 +87,10 @@ class PretrainedUtilsTest(unittest.TestCase):
 
             with self._chdir(root):
                 resolved = resolve_frontend_pretrained_checkpoint(
-                    self._model_cfg(frontend_pretrained="pretrained_checkpoints/hpt/120000_iterations.pth"),
+                    self._model_cfg(
+                        frontend_pretrained_mode="route2_piano_specific",
+                        frontend_pretrained="pretrained_checkpoints/hpt/120000_iterations.pth",
+                    ),
                     model_label="hpt",
                     required=False,
                 )
@@ -193,6 +197,32 @@ class PretrainedUtilsTest(unittest.TestCase):
         self.assertEqual(set(substate.keys()), {"weight", "bias"})
         self.assertEqual(float(substate["weight"].item()), 1.0)
         self.assertEqual(float(substate["bias"].item()), 2.0)
+
+    def test_load_score_wrapper_state_loads_full_wrapper(self):
+        class DummyWrapper(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.base_adapter = torch.nn.Linear(1, 1)
+                self.post = torch.nn.Linear(1, 1)
+
+        with tempfile.NamedTemporaryFile(suffix=".pth") as fp:
+            checkpoint = {
+                "model": {
+                    "base_adapter.weight": torch.tensor([[3.0]]),
+                    "base_adapter.bias": torch.tensor([4.0]),
+                    "post.weight": torch.tensor([[5.0]]),
+                    "post.bias": torch.tensor([6.0]),
+                }
+            }
+            torch.save(checkpoint, fp.name)
+
+            model = DummyWrapper()
+            load_score_wrapper_state(model, Path(fp.name))
+
+        self.assertEqual(float(model.base_adapter.weight.item()), 3.0)
+        self.assertEqual(float(model.base_adapter.bias.item()), 4.0)
+        self.assertEqual(float(model.post.weight.item()), 5.0)
+        self.assertEqual(float(model.post.bias.item()), 6.0)
 
 
 if __name__ == "__main__":

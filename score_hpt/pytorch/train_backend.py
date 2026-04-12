@@ -37,6 +37,10 @@ from score_inf import build_score_inf
 from score_inf.wrapper import ScoreInfWrapper
 from proxy import build_proxy_objective
 from proxy.naming import backend_display_name, backend_run_tag, is_diffproxy_backend, normalize_backend_type
+from velo_model.pretrained_utils import (
+    load_score_wrapper_state,
+    resolve_frontend_pretrained_checkpoint,
+)
 
 
 DATASET_CLASSES = {
@@ -504,6 +508,15 @@ def train(cfg):
     post = build_score_inf(method, score_params).to(device)
     model = ScoreInfWrapper(adapter, post, freeze_base=False).to(device)
 
+    if not _is_direct_method(method):
+        frontend_checkpoint = resolve_frontend_pretrained_checkpoint(
+            getattr(cfg, "model", None),
+            model_label=str(getattr(cfg.model, "type", "")),
+            required=False,
+        )
+        if frontend_checkpoint is not None:
+            load_score_wrapper_state(model, frontend_checkpoint)
+
     proxy_objective = build_proxy_objective(cfg, device)
     proxy_enabled = bool(getattr(proxy_objective, "enabled", False))
     backend_weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
@@ -618,8 +631,6 @@ def train(cfg):
                 step_stats["backend_weighted"] = (backend_weight * proxy_stats["proxy_loss"]).detach()
             for key, value in proxy_stats.items():
                 if key == "proxy_loss":
-                    continue
-                if key.startswith("spectral_mag_") or key.startswith("spectral_logmag_"):
                     continue
                 if torch.is_tensor(value) and value.ndim == 0:
                     step_stats[f"backend_{key}"] = value.detach()
