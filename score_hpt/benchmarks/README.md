@@ -27,7 +27,7 @@ Place files at:
 
 In this project, use:
 - `model.type=transkun_pretrained`
-- `model.pretrained_checkpoint=/abs/path/to/benchmarks/Transkun/transkun/pretrained/2.0.pt`
+- `model.frontend_pretrained=/abs/path/to/benchmarks/Transkun/transkun/pretrained/2.0.pt`
 
 ## 2) FiLM-UNet (Kim et al., 2024)
 Code location:
@@ -42,7 +42,7 @@ Suggested placement:
 
 In this project, use:
 - `model.type=filmunet_pretrained`
-- `model.pretrained_checkpoint=/abs/path/to/benchmarks/kim_ismir2024/pretrained/film_unet.pth`
+- `model.frontend_pretrained=/abs/path/to/benchmarks/kim_ismir2024/pretrained/film_unet.pth`
 - `model.kim_condition=frame` (default in this repo)
 
 ## Acknowledgment

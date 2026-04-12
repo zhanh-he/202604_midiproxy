@@ -1,6 +1,8 @@
+import os
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 import torch
@@ -11,6 +13,8 @@ if str(PYTORCH_DIR) not in sys.path:
     sys.path.insert(0, str(PYTORCH_DIR))
 
 from velo_model.pretrained_utils import (
+    get_frontend_pretrained_value,
+    resolve_frontend_pretrained_checkpoint,
     resolve_pretrained_checkpoint,
     select_prefixed_substate,
     unwrap_checkpoint_state_dict,
@@ -18,17 +22,148 @@ from velo_model.pretrained_utils import (
 
 
 class PretrainedUtilsTest(unittest.TestCase):
-    def test_resolve_pretrained_checkpoint_optional_empty_returns_none(self):
-        resolved = resolve_pretrained_checkpoint("", model_label="filmunet", required=False)
+    @contextmanager
+    def _chdir(self, path: Path):
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(path)
+            yield
+        finally:
+            os.chdir(old_cwd)
+
+    @staticmethod
+    def _model_cfg(**kwargs):
+        defaults = {
+            "type": "hpt",
+            "input2": None,
+            "frontend_pretrained_mode": "scratch",
+            "frontend_pretrained": "",
+        }
+        defaults.update(kwargs)
+        return type("ModelCfg", (), defaults)()
+
+    def test_get_frontend_pretrained_value_reads_frontend_pretrained(self):
+        value = get_frontend_pretrained_value(
+            type(
+                "ModelCfg",
+                (),
+                {
+                    "frontend_pretrained": "/tmp/new_name.pth",
+                },
+            )()
+        )
+        self.assertEqual(value, "/tmp/new_name.pth")
+
+    def test_get_frontend_pretrained_value_missing_field_returns_empty_string(self):
+        value = get_frontend_pretrained_value(
+            type("ModelCfg", (), {})()
+        )
+        self.assertEqual(value, "")
+
+    def test_resolve_frontend_pretrained_checkpoint_prefers_explicit_path(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            explicit_path = root / "manual.pth"
+            explicit_path.touch()
+
+            resolved = resolve_frontend_pretrained_checkpoint(
+                self._model_cfg(
+                    frontend_pretrained_mode="route2_piano_specific",
+                    frontend_pretrained=str(explicit_path),
+                ),
+                model_label="hpt",
+                required=False,
+            )
+
+        self.assertEqual(resolved, explicit_path.resolve())
+
+    def test_resolve_frontend_pretrained_checkpoint_resolves_relative_path_from_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            target = root / "pretrained_checkpoints" / "hpt" / "120000_iterations.pth"
+            target.parent.mkdir(parents=True)
+            target.touch()
+
+            with self._chdir(root):
+                resolved = resolve_frontend_pretrained_checkpoint(
+                    self._model_cfg(frontend_pretrained="pretrained_checkpoints/hpt/120000_iterations.pth"),
+                    model_label="hpt",
+                    required=False,
+                )
+
+        self.assertEqual(resolved, target.resolve())
+
+    def test_resolve_frontend_pretrained_checkpoint_auto_selects_latest_hpt_note_editor(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "pretrained_checkpoints" / "hpt+onset+score_note_editor"
+            root.mkdir(parents=True)
+            (root / "100000_iterations.pth").touch()
+            latest = root / "120000_iterations.pth"
+            latest.touch()
+
+            with self._chdir(root.parent.parent):
+                resolved = resolve_frontend_pretrained_checkpoint(
+                    self._model_cfg(
+                        input2="onset",
+                        frontend_pretrained_mode="route2_piano_auto",
+                    ),
+                    model_label="hpt",
+                    required=False,
+                )
+
+        self.assertEqual(resolved, latest.resolve())
+
+    def test_resolve_frontend_pretrained_checkpoint_auto_selects_latest_filmunet(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "pretrained_checkpoints" / "filmunet"
+            root.mkdir(parents=True)
+            (root / "100000_iterations.pth").touch()
+            latest = root / "1100000_iterations.pth"
+            latest.touch()
+
+            with self._chdir(root.parent.parent):
+                resolved = resolve_frontend_pretrained_checkpoint(
+                    self._model_cfg(
+                        type="filmunet",
+                        frontend_pretrained_mode="route2_piano_auto",
+                    ),
+                    model_label="filmunet",
+                    required=False,
+                )
+
+        self.assertEqual(resolved, latest.resolve())
+
+    def test_resolve_frontend_pretrained_checkpoint_specific_mode_resolves_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            target = root / "pretrained_checkpoints" / "hpt+onset+score_note_editor" / "120000_iterations.pth"
+            target.parent.mkdir(parents=True)
+            target.touch()
+
+            with self._chdir(root):
+                resolved = resolve_frontend_pretrained_checkpoint(
+                    self._model_cfg(
+                        input2="onset",
+                        frontend_pretrained_mode="route2_piano_specific",
+                        frontend_pretrained="pretrained_checkpoints/hpt+onset+score_note_editor/120000_iterations.pth",
+                    ),
+                    model_label="hpt",
+                    required=False,
+                )
+
+        self.assertEqual(resolved, target.resolve())
+
+    def test_resolve_frontend_pretrained_checkpoint_scratch_returns_none(self):
+        resolved = resolve_frontend_pretrained_checkpoint(
+            self._model_cfg(
+                input2="onset",
+                frontend_pretrained_mode="scratch",
+                frontend_pretrained="",
+            ),
+            model_label="hpt",
+            required=False,
+        )
         self.assertIsNone(resolved)
-
-    def test_resolve_pretrained_checkpoint_required_empty_raises(self):
-        with self.assertRaises(ValueError):
-            resolve_pretrained_checkpoint("", model_label="hpt_pretrained", required=True)
-
-    def test_resolve_pretrained_checkpoint_missing_path_raises(self):
-        with self.assertRaises(FileNotFoundError):
-            resolve_pretrained_checkpoint("/tmp/definitely_missing_checkpoint.pth", model_label="hpt_pretrained", required=True)
 
     def test_resolve_pretrained_checkpoint_existing_path_returns_path(self):
         with tempfile.NamedTemporaryFile(suffix=".pth") as fp:

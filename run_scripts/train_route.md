@@ -14,8 +14,9 @@ Script behavior:
 
 - `MODEL_TYPE=filmunet` always forces `SCORE_METHOD=direct`
 - `MODEL_TYPE=hpt` allows `SCORE_METHOD=direct` or `SCORE_METHOD=note_editor`
-- `PRETRAINED_CHECKPOINT` is optional
-- if `PRETRAINED_CHECKPOINT` is empty, training is from scratch
+- `input3` stays `null`
+- `FRONTEND_PRETRAINED` is optional
+- if `FRONTEND_PRETRAINED` is empty, training is from scratch
 
 ## Main environment variables
 
@@ -24,18 +25,17 @@ Common:
 - `TRAIN_SET`
 - `MODEL_TYPE`
 - `SCORE_METHOD`
-- `PRETRAINED_CHECKPOINT`
+- `FRONTEND_PRETRAINED`
 - `SUPERVISED_WEIGHT`
 - `BACKEND_WEIGHT`
 - `PRIOR_WEIGHT`
 - `EXTRA_OVERRIDES`
 
-The scripts keep test/eval split selection and backend path resolution inside the script/profile layer.
-
 Route III:
 
 - `SEGMENT_LIST`
 - `LOSS_TYPES`
+- `DDSP_CKPTS`
 
 Route IV:
 
@@ -61,53 +61,25 @@ Main script:
 - [`train_route3_ablation.sh`](/media/mengh/SharedData/zhanh/202604_midiproxy/run_scripts/train_route3_ablation.sh)
 
 Default sweep:
+```bash
+SEGMENT_LIST="2 5"
+LOSS_TYPES="piano_ssm_spectral piano_ssm_spectral_plus_log_rms piano_ssm_spectral_plus_diffsynth_loudness piano_ssm_combined_rm"
+MODEL_TYPE=hpt SCORE_METHOD=note_editor
+MODEL_TYPE=hpt SCORE_METHOD=direct
+MODEL_TYPE=filmunet 
+FRONTEND_PRETRAINED=/path/to/ckpt.pth # hpt-note_editor only for now
+```
 
-- `SEGMENT_LIST="2 5"`
-- `LOSS_TYPES="piano_ssm_spectral piano_ssm_spectral_plus_log_rms piano_ssm_spectral_plus_ddsp_loudness piano_ssm_combined_rm"`
-
-Examples:
-
-HPT note_editor:
-
+Example:
 ```bash
 TRAIN_SET=maestro \
-MODEL_TYPE=hpt \
-SCORE_METHOD=note_editor \
 SEGMENT_LIST="2" \
 LOSS_TYPES="piano_ssm_spectral_plus_log_rms" \
+MODEL_TYPE=hpt SCORE_METHOD=note_editor \
+FRONTEND_PRETRAINED=/path/to/ckpt.pth \
 bash run_scripts/train_route3_ablation.sh
 ```
 
-HPT direct:
-
-```bash
-TRAIN_SET=maestro \
-MODEL_TYPE=hpt \
-SCORE_METHOD=direct \
-SEGMENT_LIST="2" \
-LOSS_TYPES="piano_ssm_spectral_plus_log_rms" \
-bash run_scripts/train_route3_ablation.sh
-```
-
-FiLMUNet direct:
-
-```bash
-TRAIN_SET=maestro \
-MODEL_TYPE=filmunet \
-SEGMENT_LIST="2" \
-LOSS_TYPES="piano_ssm_spectral_plus_log_rms" \
-bash run_scripts/train_route3_ablation.sh
-```
-
-Continue from a checkpoint:
-
-```bash
-TRAIN_SET=maestro \
-MODEL_TYPE=hpt \
-SCORE_METHOD=note_editor \
-PRETRAINED_CHECKPOINT=/path/to/ckpt.pth \
-bash run_scripts/train_route3_ablation.sh
-```
 
 ## Route IV
 
@@ -116,43 +88,21 @@ Main script:
 - [`train_route4_ablation.sh`](/media/mengh/SharedData/zhanh/202604_midiproxy/run_scripts/train_route4_ablation.sh)
 
 Default sweep:
-
-- piano: `SEGMENT_LIST="2 5 10"`
-- guitar: `SEGMENT_LIST="2 5"`
-- `SAMPLERS="coverage mixed realism"`
-- `LOSS_TYPES="smooth_l1 l1 mse"`
-
-Examples:
-
-HPT note_editor:
-
 ```bash
-TRAIN_SET=maestro \
-MODEL_TYPE=hpt \
-SCORE_METHOD=note_editor \
-SEGMENT_LIST="2" \
-SAMPLERS="mixed" \
-LOSS_TYPES="smooth_l1" \
-bash run_scripts/train_route4_ablation.sh
+SEGMENT_LIST="2 5"
+LOSS_TYPES="smooth_l1 l1 mse"
+SAMPLERS="coverage mixed realism"
+MODEL_TYPE=hpt SCORE_METHOD=note_editor
+MODEL_TYPE=hpt SCORE_METHOD=direct
+MODEL_TYPE=filmunet 
+FRONTEND_PRETRAINED=/path/to/ckpt.pth # hpt-note_editor only for now
 ```
 
-HPT direct:
+Example:
 
 ```bash
 TRAIN_SET=maestro \
-MODEL_TYPE=hpt \
-SCORE_METHOD=direct \
-SEGMENT_LIST="2" \
-SAMPLERS="mixed" \
-LOSS_TYPES="smooth_l1" \
-bash run_scripts/train_route4_ablation.sh
-```
-
-FiLMUNet direct:
-
-```bash
-TRAIN_SET=maestro \
-MODEL_TYPE=filmunet \
+MODEL_TYPE=hpt SCORE_METHOD=note_editor \
 SEGMENT_LIST="2" \
 SAMPLERS="mixed" \
 LOSS_TYPES="smooth_l1" \
@@ -160,7 +110,6 @@ bash run_scripts/train_route4_ablation.sh
 ```
 
 Use one specific SFProxy checkpoint:
-
 ```bash
 TRAIN_SET=maestro \
 MODEL_TYPE=hpt \

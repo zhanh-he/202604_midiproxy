@@ -27,8 +27,9 @@ Rules:
 - `MODEL_TYPES` should be `hpt` or `filmunet`
 - `SCORE_METHOD` is only meaningful for `hpt`
 - `filmunet` is always forced to `direct`
-- `PRETRAINED_CHECKPOINT` is optional
-- if you set `PRETRAINED_CHECKPOINT`, it should usually be used with one model type at a time
+- `FRONTEND_PRETRAINED` is optional and overrides auto selection when set
+- `USE_ROUTE2_PIANO_PRETRAINED_CKPT=1` auto-loads the latest Route II piano frontend ckpt for the current model combination
+- if you set `FRONTEND_PRETRAINED`, it should usually be used with one model type at a time
 
 ## Data layout on Kaya
 
@@ -49,6 +50,10 @@ Required subtrees:
       hdf5s/
         maestro_sr22050/
         smd_sr22050/
+      pretrained_checkpoints/
+        hpt/
+        hpt+onset+score_note_editor/
+        filmunet/
 ```
 
 ### Route III DDSP checkpoints
@@ -85,6 +90,7 @@ These scripts:
 
 - copy the repo to scratch
 - link `workspaces/hdf5s` to the scratch data root
+- link `pretrained_checkpoints` to `score_hpt/workspaces/pretrained_checkpoints`
 - resolve DDSP or SFProxy checkpoints from `$MYSCRATCH/202604_midiproxy_data`
 - expand SLURM arrays over ablation combinations
 - move `checkpoints/` and `logs/` back to `${MYGROUP}` after training
@@ -103,7 +109,7 @@ unless you explicitly turn on audio evaluation.
 
 - `MODEL_TYPES=("hpt" "filmunet")`
 - `SEGMENTS=("2" "5")`
-- `AUDIO_LOSSES=("piano_ssm_spectral" "piano_ssm_spectral_plus_log_rms" "piano_ssm_spectral_plus_ddsp_loudness" "piano_ssm_combined_rm")`
+- `AUDIO_LOSSES=("piano_ssm_spectral" "piano_ssm_spectral_plus_log_rms" "piano_ssm_spectral_plus_diffsynth_loudness" "piano_ssm_combined_rm")`
 - `SUP_BACKEND_PAIRS=("0.0,1.0" "0.5,0.5")`
 - `PRIOR_WEIGHTS=("0.0" "0.01")`
 
@@ -128,12 +134,36 @@ sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
 Run with a pretrained checkpoint:
 
 ```bash
-MODEL_TYPES="hpt" PRETRAINED_CHECKPOINT=/abs/path/to/hpt_checkpoint.pth \
+MODEL_TYPES="hpt" FRONTEND_PRETRAINED=/abs/path/to/hpt_checkpoint.pth \
 sbatch kaya_scripts/kaya_hpt_route3_ablation.sh
 ```
 
 ```bash
-MODEL_TYPES="filmunet" PRETRAINED_CHECKPOINT=/abs/path/to/filmunet_checkpoint.pth \
+MODEL_TYPES="filmunet" FRONTEND_PRETRAINED=/abs/path/to/filmunet_checkpoint.pth \
+sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
+```
+
+Run with the latest Route II piano frontend ckpt chosen automatically:
+
+```bash
+MODEL_TYPES="hpt" SCORE_METHOD=note_editor USE_ROUTE2_PIANO_PRETRAINED_CKPT=1 \
+sbatch kaya_scripts/kaya_hpt_route3_ablation.sh
+```
+
+```bash
+MODEL_TYPES="filmunet" USE_ROUTE2_PIANO_PRETRAINED_CKPT=1 \
+sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
+```
+
+Use a relative frontend checkpoint path under `score_hpt/workspaces/pretrained_checkpoints`:
+
+```bash
+MODEL_TYPES="hpt" FRONTEND_PRETRAINED=hpt/120000_iterations.pth \
+sbatch kaya_scripts/kaya_hpt_route3_ablation.sh
+```
+
+```bash
+MODEL_TYPES="hpt" SCORE_METHOD=note_editor FRONTEND_PRETRAINED=hpt+onset+score_note_editor/120000_iterations.pth \
 sbatch kaya_scripts/kaya_hpt_route4_ablation.sh
 ```
 

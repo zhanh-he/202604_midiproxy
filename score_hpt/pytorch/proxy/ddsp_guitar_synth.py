@@ -30,23 +30,23 @@ class DDSPGuitarSynthProxy:
         self.src_sample_rate = int(cfg.feature.sample_rate)
         self.src_frames_per_second = float(cfg.feature.frames_per_second)
         self.segment_seconds = float(cfg.feature.segment_seconds)
-        self.crop_mode = str(getattr(cfg.proxy, 'crop_mode', 'random') or 'random')
+        self.crop_mode = str(getattr(cfg.backend, 'crop_mode', 'random') or 'random')
         self.begin_note = int(getattr(cfg.feature, 'begin_note', 21) or 21)
         default_velocity_scale = float(getattr(cfg.feature, 'velocity_scale', 128) or 128)
         self.velocity_midi_max = max(1.0, default_velocity_scale - 1.0)
 
-        ddsp_cfg = getattr(cfg.proxy, 'ddsp_guitar', None)
-        self.configured_sample_rate = int(getattr(ddsp_cfg, 'sample_rate', 22050) or 22050)
-        self.configured_frame_rate = float(getattr(ddsp_cfg, 'frame_rate', 100.0) or 100.0)
-        self.configured_hop_size = int(getattr(ddsp_cfg, 'hop_size', 0) or 0)
-        self.configured_n_fft = int(getattr(ddsp_cfg, 'n_fft', 2048) or 2048)
-        self.max_fret = int(getattr(ddsp_cfg, 'max_fret', 24) or 24)
-        self.native_sample_rate = int(getattr(ddsp_cfg, 'native_sample_rate', self.configured_sample_rate) or self.configured_sample_rate)
-        self.native_frame_rate = float(getattr(ddsp_cfg, 'native_frame_rate', self.configured_frame_rate) or self.configured_frame_rate)
-        self.native_segment_seconds = float(getattr(ddsp_cfg, 'native_segment_seconds', 10.0) or 10.0)
+        diffsynth_cfg = getattr(cfg.backend, 'diffsynth_guitar', None)
+        self.configured_sample_rate = int(getattr(diffsynth_cfg, 'sample_rate', 22050) or 22050)
+        self.configured_frame_rate = float(getattr(diffsynth_cfg, 'frame_rate', 100.0) or 100.0)
+        self.configured_hop_size = int(getattr(diffsynth_cfg, 'hop_size', 0) or 0)
+        self.configured_n_fft = int(getattr(diffsynth_cfg, 'n_fft', 2048) or 2048)
+        self.max_fret = int(getattr(diffsynth_cfg, 'max_fret', 24) or 24)
+        self.native_sample_rate = int(getattr(diffsynth_cfg, 'native_sample_rate', self.configured_sample_rate) or self.configured_sample_rate)
+        self.native_frame_rate = float(getattr(diffsynth_cfg, 'native_frame_rate', self.configured_frame_rate) or self.configured_frame_rate)
+        self.native_segment_seconds = float(getattr(diffsynth_cfg, 'native_segment_seconds', 10.0) or 10.0)
         self.crop_seconds = resolve_backend_segment_seconds(
             cfg,
-            backend_cfg=ddsp_cfg,
+            backend_cfg=diffsynth_cfg,
             backend_default=self.native_segment_seconds,
             total_segment_seconds=self.segment_seconds,
         )
@@ -69,17 +69,15 @@ class DDSPGuitarSynthProxy:
         return max(1, self._round_half_up(float(sample_rate) / max(float(frame_rate), 1e-6)))
 
     def _resolve_proxy_root(self) -> Path:
-        explicit = str(getattr(getattr(self.cfg.proxy, 'ddsp', None), 'project_root', '') or '').strip()
+        explicit = str(getattr(getattr(self.cfg.backend, 'diffsynth', None), 'project_root', '') or '').strip()
         if explicit:
             root = Path(explicit).expanduser().resolve()
         else:
-            generic = str(getattr(self.cfg.proxy, 'project_root', '') or '').strip()
+            generic = str(getattr(self.cfg.backend, 'project_root', '') or '').strip()
             if generic:
                 root = Path(generic).expanduser().resolve()
             else:
                 root = Path(__file__).resolve().parents[3] / 'synthesizer' / 'ddsp-guitar-synth'
-        if not root.exists():
-            raise FileNotFoundError(f"DDSP-Guitar-Synth project root not found: {root}")
         return root
 
     def _read_checkpoint_config(self, checkpoint_path: Path) -> dict:
@@ -95,13 +93,7 @@ class DDSPGuitarSynthProxy:
         importlib.invalidate_caches()
         MidiSynth = importlib.import_module('midi_synth.midi_synth').MidiSynth
 
-        checkpoint = str(getattr(self.cfg.proxy, 'checkpoint', '') or '').strip()
-        if not checkpoint:
-            raise ValueError('proxy.checkpoint must point to a trained DDSP-Guitar-Synth checkpoint when proxy.enabled=true')
-        checkpoint_path = Path(checkpoint).expanduser().resolve()
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f'DDSP-Guitar-Synth checkpoint not found: {checkpoint_path}')
-
+        checkpoint_path = Path(str(getattr(self.cfg.backend, 'checkpoint', '') or '')).expanduser().resolve()
         renderer_config = self._read_checkpoint_config(checkpoint_path)
         self.sample_rate = int(renderer_config.get('sample_rate', self.configured_sample_rate) or self.configured_sample_rate)
         target_frame_rate = float(renderer_config.get('target_frame_rate', self.configured_frame_rate) or self.configured_frame_rate)
@@ -119,11 +111,8 @@ class DDSPGuitarSynthProxy:
         model = MidiSynth(sr=self.sample_rate, hop_length=self.hop_length, reverb_length=self.sample_rate)
         state = torch.load(checkpoint_path, map_location=self.device)
         if isinstance(state, dict) and 'model_state_dict' in state:
-            model.load_state_dict(state['model_state_dict'], strict=True)
-        elif isinstance(state, dict):
-            model.load_state_dict(state, strict=True)
-        else:
-            raise ValueError(f'Unsupported DDSP-Guitar-Synth checkpoint format: {checkpoint_path}')
+            state = state['model_state_dict']
+        model.load_state_dict(state, strict=True)
         return model
 
     @staticmethod

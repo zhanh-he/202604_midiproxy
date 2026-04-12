@@ -37,7 +37,7 @@ Run these from `score_hpt/`:
 ```bash
 python pytorch/direct_invension/route1_infer.py dataset.test_set=smd
 python pytorch/direct_invension/route1_evaluate.py dataset.test_set=smd route1.eval.instrument_path=/path/to/soundfont.sf2
-python pytorch/direct_invension/route2_infer.py dataset.test_set=smd model.pretrained_checkpoint=/path/to/ckpt.pth
+python pytorch/direct_invension/route2_infer.py dataset.test_set=smd model.frontend_pretrained=/path/to/ckpt.pth
 python pytorch/direct_invension/route2_evaluate.py dataset.test_set=smd route2.eval.instrument_path=/path/to/soundfont.sf2
 python pytorch/direct_invension/flat_infer.py dataset.test_set=smd flat.infer.flat_velocity=64
 python pytorch/direct_invension/flat_evaluate.py dataset.test_set=smd flat.eval.instrument_path=/path/to/soundfont.sf2
@@ -54,7 +54,7 @@ pytorch/config/config.yaml
 Important Route I defaults:
 
 - `feature.frames_per_second=100`
-- `proxy.supervision.hop_size=221`
+- `backend.supervision.hop_size=221`
 - `route1.infer.*`
 - `route1.eval.*`
 

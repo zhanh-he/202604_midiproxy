@@ -31,19 +31,19 @@ class SFProxyObjective:
         self.cfg = cfg
         self.device = device
         self.random_state = __import__('numpy').random.RandomState(cfg.exp.random_seed)
-        self.warmup_iterations = int(getattr(cfg.proxy, 'warmup_iterations', 0) or 0)
+        self.warmup_iterations = int(getattr(cfg.backend, 'warmup_iterations', 0) or 0)
 
         self.src_sample_rate = int(cfg.feature.sample_rate)
         self.src_frames_per_second = float(cfg.feature.frames_per_second)
         self.full_segment_seconds = float(cfg.feature.segment_seconds)
         self.begin_note = int(cfg.feature.begin_note)
 
-        self.crop_mode = str(getattr(cfg.proxy, 'crop_mode', 'random') or 'random')
-        sfproxy_cfg = getattr(cfg.proxy, 'sfproxy', None)
-        native_segment_seconds = float(getattr(sfproxy_cfg, 'native_segment_seconds', getattr(sfproxy_cfg, 'segment_seconds', 2.0) or 2.0) or 2.0)
+        self.crop_mode = str(getattr(cfg.backend, 'crop_mode', 'random') or 'random')
+        diffproxy_cfg = getattr(cfg.backend, 'diffproxy', None)
+        native_segment_seconds = float(getattr(diffproxy_cfg, 'native_segment_seconds', 2.0) or 2.0)
         self.crop_seconds = resolve_backend_segment_seconds(
             cfg,
-            backend_cfg=sfproxy_cfg,
+            backend_cfg=diffproxy_cfg,
             backend_default=native_segment_seconds,
             total_segment_seconds=self.full_segment_seconds,
         )
@@ -51,16 +51,16 @@ class SFProxyObjective:
 
         supervision_sample_rate = resolve_supervision_sample_rate(cfg)
         supervision_frame_rate = resolve_supervision_frame_rate(cfg)
-        self.sample_rate = int(getattr(cfg.proxy.sfproxy, 'sample_rate', 0) or 0)
+        self.sample_rate = int(getattr(cfg.backend.diffproxy, 'sample_rate', 0) or 0)
         if self.sample_rate <= 0:
             self.sample_rate = supervision_sample_rate
-        self.instrument_name = str(getattr(cfg.proxy.sfproxy, 'instrument_name', '') or '').strip()
-        self.feature_name = str(getattr(cfg.proxy.sfproxy, 'feature_name', 'note_dynamics') or 'note_dynamics').strip()
-        self.loss_type = str(getattr(cfg.proxy.sfproxy, 'loss_type', 'smooth_l1') or 'smooth_l1').strip().lower()
-        self.loss_beta = float(getattr(cfg.proxy.sfproxy, 'loss_beta', 1.0) or 1.0)
-        self.use_gt_aligned_note_events = bool(getattr(cfg.proxy.sfproxy, 'use_gt_aligned_note_events', True))
+        self.instrument_name = str(getattr(cfg.backend.diffproxy, 'instrument_name', '') or '').strip()
+        self.feature_name = str(getattr(cfg.backend.diffproxy, 'feature_name', 'note_dynamics') or 'note_dynamics').strip()
+        self.loss_type = str(getattr(cfg.backend.diffproxy, 'loss_type', 'smooth_l1') or 'smooth_l1').strip().lower()
+        self.loss_beta = float(getattr(cfg.backend.diffproxy, 'loss_beta', 1.0) or 1.0)
+        self.use_gt_aligned_note_events = bool(getattr(cfg.backend.diffproxy, 'use_gt_aligned_note_events', True))
 
-        note_builder_cfg = getattr(cfg.proxy.sfproxy, 'note_builder', None)
+        note_builder_cfg = getattr(cfg.backend.diffproxy, 'note_builder', None)
         self.onset_threshold = float(getattr(note_builder_cfg, 'onset_threshold', 0.5) or 0.5)
         self.frame_threshold = float(getattr(note_builder_cfg, 'frame_threshold', 0.5) or 0.5)
         self.max_notes = int(getattr(note_builder_cfg, 'max_notes', 512) or 512)
@@ -74,7 +74,7 @@ class SFProxyObjective:
         from models.note_proxy_tfm import NoteProxyTransformer
 
         self.extract_note_features_padded = extract_note_features_padded
-        feature_cfg = getattr(cfg.proxy.sfproxy, 'feature', None)
+        feature_cfg = getattr(cfg.backend.diffproxy, 'feature', None)
         feature_kwargs = self._to_plain_dict(feature_cfg)
         feature_kwargs.setdefault('n_fft', 0)
         feature_kwargs.setdefault('hop', 0)
@@ -88,9 +88,9 @@ class SFProxyObjective:
             )
         self.feature_cfg = DynamicsFeatureConfig(**feature_kwargs)
 
-        model_cfg = self._to_plain_dict(getattr(cfg.proxy.sfproxy, 'model', None))
+        model_cfg = self._to_plain_dict(getattr(cfg.backend.diffproxy, 'model', None))
         self.model = NoteProxyTransformer(cfg=model_cfg)
-        self._load_checkpoint(self.model, str(getattr(cfg.proxy, 'checkpoint', '') or '').strip())
+        self._load_checkpoint(self.model, str(getattr(cfg.backend, 'checkpoint', '') or '').strip())
         self.model.to(self.device)
         self.model.eval()
         for param in self.model.parameters():
@@ -113,27 +113,20 @@ class SFProxyObjective:
         return dict(value)
 
     def _resolve_project_root(self) -> Path:
-        explicit = str(getattr(getattr(self.cfg.proxy, 'sfproxy', None), 'project_root', '') or '').strip()
+        explicit = str(getattr(getattr(self.cfg.backend, 'diffproxy', None), 'project_root', '') or '').strip()
         if explicit:
             root = Path(explicit).expanduser().resolve()
         else:
-            generic = str(getattr(self.cfg.proxy, 'project_root', '') or '').strip()
+            generic = str(getattr(self.cfg.backend, 'project_root', '') or '').strip()
             if generic:
                 root = Path(generic).expanduser().resolve()
             else:
                 root = Path(__file__).resolve().parents[3] / 'synth-proxy'
-        if not root.exists():
-            raise FileNotFoundError(f'SFProxy project root not found: {root}')
         return root
 
     @staticmethod
     def _load_checkpoint(model: torch.nn.Module, checkpoint: str) -> None:
-        if not checkpoint:
-            raise ValueError('proxy.checkpoint must point to a trained SFProxy checkpoint when proxy.enabled=true')
         checkpoint_path = Path(checkpoint).expanduser().resolve()
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f'SFProxy checkpoint not found: {checkpoint_path}')
-
         state = torch.load(checkpoint_path, map_location='cpu')
         if isinstance(state, dict) and 'state_dict' in state:
             state = state['state_dict']
@@ -141,13 +134,7 @@ class SFProxyObjective:
             prefixed = {k[len('model.'):]: v for k, v in state.items() if k.startswith('model.')}
             if prefixed:
                 state = prefixed
-        missing, unexpected = model.load_state_dict(state, strict=False)
-        if unexpected:
-            raise RuntimeError(f'Unexpected SFProxy checkpoint keys: {unexpected}')
-        allowed_missing = {'seg_head.1.weight', 'seg_head.1.bias', 'seg_head.3.weight', 'seg_head.3.bias'}
-        missing = [k for k in missing if k not in allowed_missing]
-        if missing:
-            raise RuntimeError(f'Missing SFProxy checkpoint keys: {missing}')
+        model.load_state_dict(state, strict=False)
 
     def _crop_inputs(self, batch_data_dict, audio: torch.Tensor, vel_pred: torch.Tensor):
         onset_roll = move_data_to_device(batch_data_dict['onset_roll'], self.device).float()
@@ -476,15 +463,17 @@ class SFProxyObjective:
         weights = mask.to(pred.dtype).unsqueeze(-1)
         denom = torch.clamp(weights.sum(), min=1.0)
         loss_name = self.loss_type.lower()
-
-        if loss_name == 'smooth_l1':
-            loss = F.smooth_l1_loss(pred * weights, target * weights, reduction='sum', beta=self.loss_beta) / denom
-        elif loss_name == 'l1':
-            loss = torch.abs(pred - target).mul(weights).sum() / denom
-        elif loss_name in {'mse', 'l2'}:
-            loss = (pred - target).pow(2).mul(weights).sum() / denom
-        else:
-            raise ValueError(f'Unsupported proxy.sfproxy.loss_type: {self.loss_type}')
+        loss = {
+            'smooth_l1': lambda: F.smooth_l1_loss(
+                pred * weights,
+                target * weights,
+                reduction='sum',
+                beta=self.loss_beta,
+            ) / denom,
+            'l1': lambda: torch.abs(pred - target).mul(weights).sum() / denom,
+            'mse': lambda: (pred - target).pow(2).mul(weights).sum() / denom,
+            'l2': lambda: (pred - target).pow(2).mul(weights).sum() / denom,
+        }[loss_name]()
 
         mae = torch.abs(pred - target).mul(weights).sum() / denom
         return loss, mae

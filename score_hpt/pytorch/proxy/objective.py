@@ -23,21 +23,21 @@ class AudioProxyObjective:
         self.cfg = cfg
         self.device = device
         self.random_state = np.random.RandomState(cfg.exp.random_seed)
-        self.warmup_iterations = int(getattr(cfg.proxy, 'warmup_iterations', 0) or 0)
+        self.warmup_iterations = int(getattr(cfg.backend, 'warmup_iterations', 0) or 0)
 
         self.audio_loss_name = get_audio_loss_name(cfg)
         self.supervision_sample_rate = int(resolve_supervision_sample_rate(cfg))
         self.supervision_frame_rate = float(resolve_supervision_frame_rate(cfg))
 
-        backend_type = normalize_backend_type(getattr(cfg.proxy, 'type', 'ddsp_piano'))
-        if backend_type == 'ddsp_piano':
-            from .ddsp_piano import DDSPPianoProxy
-            self.renderer = DDSPPianoProxy(cfg, device)
-        elif backend_type == 'ddsp_guitar':
-            from .ddsp_guitar import DDSPGuitarProxy
-            self.renderer = DDSPGuitarProxy(cfg, device)
-        else:
-            raise ValueError(f'Unknown differentiable supervision backend type: {backend_type}')
+        backend_type = normalize_backend_type(getattr(cfg.backend, 'type', 'diffsynth_piano'))
+        from .ddsp_piano import DDSPPianoProxy
+        from .ddsp_guitar import DDSPGuitarProxy
+
+        renderer_cls = {
+            'diffsynth_piano': DDSPPianoProxy,
+            'diffsynth_guitar': DDSPGuitarProxy,
+        }[backend_type]
+        self.renderer = renderer_cls(cfg, device)
 
         self.audio_loss = build_audio_loss(
             cfg,
@@ -75,15 +75,13 @@ class AudioProxyObjective:
 
 
 def build_proxy_objective(cfg, device: torch.device):
-    enabled = bool(getattr(cfg.proxy, 'enabled', False))
-    proxy_weight = float(getattr(cfg.loss, 'proxy_weight', 0.0) or 0.0)
-    if not enabled or proxy_weight <= 0:
+    enabled = bool(getattr(cfg.backend, 'enabled', False))
+    backend_weight = float(getattr(cfg.loss, 'backend_weight', 0.0) or 0.0)
+    if not enabled or backend_weight <= 0:
         return DisabledProxyObjective()
 
-    backend_type = normalize_backend_type(getattr(cfg.proxy, 'type', 'ddsp_piano'))
-    if backend_type in {'ddsp_piano', 'ddsp_guitar'}:
-        return AudioProxyObjective(cfg, device)
-    if backend_type == 'sfproxy':
+    backend_type = normalize_backend_type(getattr(cfg.backend, 'type', 'diffsynth_piano'))
+    if backend_type == 'diffproxy':
         from .sfproxy import SFProxyObjective
         return SFProxyObjective(cfg, device)
-    raise ValueError(f'Unknown differentiable supervision backend type: {backend_type}')
+    return AudioProxyObjective(cfg, device)

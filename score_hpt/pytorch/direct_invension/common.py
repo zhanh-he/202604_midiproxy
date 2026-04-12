@@ -95,7 +95,7 @@ def resolve_dataset_dir(cfg, dataset_type: str) -> Path:
 def validate_hop_contract(*, fps: float, hop_size: int, route_name: str) -> None:
     if abs(float(fps) - 100.0) < 1e-6 and int(hop_size) != 221:
         raise ValueError(
-            f"{route_name} expects proxy.supervision.hop_size=221 when fps=100, got hop_size={hop_size}."
+            f"{route_name} expects backend.supervision.hop_size=221 when fps=100, got hop_size={hop_size}."
         )
 
 

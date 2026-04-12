@@ -8,7 +8,7 @@ import torch
 from torch.optim import Adam, AdamW
 
 from typing import Dict, Any, Optional, Tuple
-from hydra import initialize, compose
+from hydra import compose, initialize
 from omegaconf import OmegaConf
 import wandb
 
@@ -70,9 +70,9 @@ def _clean_name_part(value) -> str:
 
 
 def _proxy_objective_name(cfg) -> str:
-    backend_type = normalize_backend_type(getattr(cfg.proxy, "type", "ddsp_piano"))
-    if backend_type == "sfproxy":
-        return _clean_name_part(getattr(cfg.proxy.sfproxy, "loss_type", "smooth_l1")) or "smooth_l1"
+    backend_type = normalize_backend_type(getattr(cfg.backend, "type", "diffsynth_piano"))
+    if backend_type == "diffproxy":
+        return _clean_name_part(getattr(cfg.backend.diffproxy, "loss_type", "smooth_l1")) or "smooth_l1"
     return _clean_name_part(get_audio_loss_name(cfg)) or "audio"
 
 
@@ -84,25 +84,23 @@ def _fmt_tag_value(value) -> str:
 
 
 def _backend_segment_tag(cfg) -> str:
-    segment_seconds = _fmt_tag_value(
-        getattr(cfg.proxy, "backend_segment_seconds", getattr(cfg.proxy, "crop_seconds", 0.0))
-    )
+    segment_seconds = _fmt_tag_value(getattr(cfg.backend, "backend_segment_seconds", 0.0))
     if not segment_seconds or segment_seconds == "0":
         return ""
     return f"{segment_seconds}s"
 
 
 def _backend_suffix(cfg) -> str:
-    enabled = bool(getattr(cfg.proxy, "enabled", False))
-    weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
+    enabled = bool(getattr(cfg.backend, "enabled", False))
+    weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     if not enabled or weight <= 0:
         return ""
-    backend_tag = backend_run_tag(getattr(cfg.proxy, "type", "ddsp_piano"))
+    backend_tag = backend_run_tag(getattr(cfg.backend, "type", "diffsynth_piano"))
     backend_objective = _proxy_objective_name(cfg)
     parts = [f"backend_{backend_tag}", backend_objective]
-    if is_diffproxy_backend(getattr(cfg.proxy, "type", "")):
-        instrument = _clean_name_part(getattr(cfg.proxy.sfproxy, "instrument_name", ""))
-        crop_mode = _clean_name_part(getattr(cfg.proxy, "crop_mode", ""))
+    if is_diffproxy_backend(getattr(cfg.backend, "type", "")):
+        instrument = _clean_name_part(getattr(cfg.backend.diffproxy, "instrument_name", ""))
+        crop_mode = _clean_name_part(getattr(cfg.backend, "crop_mode", ""))
         if instrument:
             parts.append(instrument)
         if crop_mode:
@@ -112,7 +110,7 @@ def _backend_suffix(cfg) -> str:
 
 def _loss_weight_suffix(cfg) -> str:
     sup_weight = float(getattr(cfg.loss, "supervised_weight", 0.0) or 0.0)
-    backend_weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
+    backend_weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
 
     parts = [
@@ -129,7 +127,7 @@ def _train_wandb_name(cfg):
     tag = _clean_name_part(getattr(cfg.wandb, "tag", ""))
     if not name:
         method = _method_name(cfg.score_informed.method)
-        prefix = "route4" if is_diffproxy_backend(getattr(cfg.proxy, "type", "")) else "route3"
+        prefix = "route4" if is_diffproxy_backend(getattr(cfg.backend, "type", "")) else "route3"
         train_set = _clean_name_part(getattr(cfg.dataset, "train_set", "")) or "train"
         segment_tag = _backend_segment_tag(cfg)
         name_parts = [prefix, train_set]
@@ -202,14 +200,14 @@ def _write_training_stats(
         condition_check = False
         condition_type = "ignored"
 
-    proxy_enabled = bool(getattr(cfg.proxy, "enabled", False))
-    backend_type = backend_display_name(getattr(cfg.proxy, "type", "ddsp_piano")) if proxy_enabled else "off"
-    backend_tag = backend_run_tag(getattr(cfg.proxy, "type", "ddsp_piano")) if proxy_enabled else "off"
-    backend_objective = _proxy_objective_name(cfg) if proxy_enabled else "off"
-    proxy_weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
+    backend_enabled = bool(getattr(cfg.backend, "enabled", False))
+    backend_type = backend_display_name(getattr(cfg.backend, "type", "diffsynth_piano")) if backend_enabled else "off"
+    backend_tag = backend_run_tag(getattr(cfg.backend, "type", "diffsynth_piano")) if backend_enabled else "off"
+    backend_objective = _proxy_objective_name(cfg) if backend_enabled else "off"
+    backend_weight_value = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     backend_instrument = ""
-    if proxy_enabled and is_diffproxy_backend(getattr(cfg.proxy, "type", "")):
-        backend_instrument = str(getattr(cfg.proxy.sfproxy, "instrument_name", "") or "").strip()
+    if backend_enabled and is_diffproxy_backend(getattr(cfg.backend, "type", "")):
+        backend_instrument = str(getattr(cfg.backend.diffproxy, "instrument_name", "") or "").strip()
 
     lines = [
         f"file name           :{file_name}",
@@ -218,19 +216,13 @@ def _write_training_stats(
         f"condition_net       :{condition_net}",
         f"loss_type           :{getattr(cfg.loss, 'loss_type', getattr(cfg.exp, 'loss_type', ''))}",
         f"supervised_weight   :{float(getattr(cfg.loss, 'supervised_weight', 1.0) or 0.0)}",
-        f"backend_enabled     :{proxy_enabled}",
+        f"backend_enabled     :{backend_enabled}",
         f"backend_type        :{backend_type}",
         f"backend_tag         :{backend_tag}",
         f"backend_objective   :{backend_objective}",
         f"backend_instrument  :{backend_instrument or 'off'}",
-        f"backend_weight      :{proxy_weight}",
-        f"backend_segment_sec :{float(getattr(cfg.proxy, 'backend_segment_seconds', getattr(cfg.proxy, 'crop_seconds', 0.0)) or 0.0)}",
-        f"proxy_enabled       :{proxy_enabled}",
-        f"proxy_type          :{getattr(cfg.proxy, 'type', 'off') if proxy_enabled else 'off'}",
-        f"proxy_objective     :{backend_objective}",
-        f"proxy_instrument    :{backend_instrument or 'off'}",
-        f"proxy_weight        :{proxy_weight}",
-        f"proxy_segment_sec  :{float(getattr(cfg.proxy, 'backend_segment_seconds', getattr(cfg.proxy, 'crop_seconds', 0.0)) or 0.0)}",
+        f"backend_weight      :{backend_weight_value}",
+        f"backend_segment_sec :{float(getattr(cfg.backend, 'backend_segment_seconds', 0.0) or 0.0)}",
         f"velocity_prior_w    :{float(getattr(cfg.loss, 'velocity_prior_weight', 0.0) or 0.0)}",
         f"condition_type      :{condition_type}",
         f"batch_size          :{cfg.exp.batch_size}",
@@ -283,11 +275,11 @@ def _resolve_score_inf_conditioning(cfg, method: str, params: Dict[str, Any]) ->
 
 
 def _required_target_rolls(loss_type: str) -> list:
-    if loss_type in ("velocity_bce", "velocity_mse"):
-        return ["velocity_roll", "onset_roll"]
-    if loss_type == "kim_bce_l1":
-        return ["velocity_roll", "onset_roll", "frame_roll"]
-    raise ValueError(f"Unknown loss_type: {loss_type}")
+    return {
+        "velocity_bce": ["velocity_roll", "onset_roll"],
+        "velocity_mse": ["velocity_roll", "onset_roll"],
+        "kim_bce_l1": ["velocity_roll", "onset_roll", "frame_roll"],
+    }[loss_type]
 
 
 
@@ -309,37 +301,24 @@ def _phase_at_iteration(train_mode: str, iteration: int, switch_iteration: int) 
         return "joint"
     if iteration < switch_iteration:
         return "adapter_only"
-    if train_mode == "adapter_then_score":
-        return "score_only"
-    if train_mode == "adapter_then_joint":
-        return "joint"
-    raise ValueError(f"Unknown score_informed.train_mode: {train_mode}")
+    return {
+        "adapter_then_score": "score_only",
+        "adapter_then_joint": "joint",
+    }[train_mode]
 
 
 
 def _apply_train_phase(model: ScoreInfWrapper, phase: str) -> None:
-    if phase == "adapter_only":
-        model.freeze_base = False
-        for p in model.base_adapter.parameters():
-            p.requires_grad = True
-        for p in model.post.parameters():
-            p.requires_grad = False
-        return
-    if phase == "score_only":
-        model.freeze_base = True
-        for p in model.base_adapter.parameters():
-            p.requires_grad = False
-        for p in model.post.parameters():
-            p.requires_grad = True
-        return
-    if phase == "joint":
-        model.freeze_base = False
-        for p in model.base_adapter.parameters():
-            p.requires_grad = True
-        for p in model.post.parameters():
-            p.requires_grad = True
-        return
-    raise ValueError(f"Unknown phase: {phase}")
+    freeze_base, adapter_grad, post_grad = {
+        "adapter_only": (False, True, False),
+        "score_only": (True, False, True),
+        "joint": (False, True, True),
+    }[phase]
+    model.freeze_base = freeze_base
+    for p in model.base_adapter.parameters():
+        p.requires_grad = adapter_grad
+    for p in model.post.parameters():
+        p.requires_grad = post_grad
 
 
 
@@ -350,9 +329,6 @@ def build_dataloaders(cfg):
             "eval": EvalSampler,
         }
         return sampler_mapping[purpose](cfg, split=split, is_eval=is_eval)
-
-    if cfg.dataset.train_set not in DATASET_CLASSES:
-        raise KeyError(f"Unknown train_set '{cfg.dataset.train_set}'. Available: {list(DATASET_CLASSES.keys())}")
 
     train_dataset = DATASET_CLASSES[cfg.dataset.train_set](cfg)
     train_sampler = get_sampler(cfg, purpose="train", split="train", is_eval=None)
@@ -377,8 +353,6 @@ def build_dataloaders(cfg):
             )
             continue
 
-        if eval_name not in DATASET_CLASSES:
-            raise KeyError(f"Unknown eval dataset '{eval_name}'. Available: {list(DATASET_CLASSES.keys())}")
         eval_loaders[eval_name] = torch.utils.data.DataLoader(
             dataset=DATASET_CLASSES[eval_name](cfg),
             batch_sampler=get_sampler(cfg, purpose="eval", split="test", is_eval=eval_name),
@@ -526,21 +500,16 @@ def train(cfg):
 
     proxy_objective = build_proxy_objective(cfg, device)
     proxy_enabled = bool(getattr(proxy_objective, "enabled", False))
-    proxy_weight = float(getattr(cfg.loss, "proxy_weight", 0.0) or 0.0)
+    backend_weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
-
-    if supervised_weight <= 0 and proxy_weight <= 0 and prior_weight <= 0:
-        raise RuntimeError(
-            "No active loss term. Enable at least one of: loss.supervised_weight, loss.proxy_weight, loss.velocity_prior_weight."
-        )
 
     # Paths for results
     model_name = get_model_name(cfg)
     if not _is_direct_method(method):
         model_name = f"{model_name}+score_{method}"
-    if proxy_enabled and proxy_weight > 0:
+    if proxy_enabled and backend_weight > 0:
         model_name = (
-            f"{model_name}+backend_{backend_run_tag(cfg.proxy.type)}+{_proxy_objective_name(cfg)}"
+            f"{model_name}+backend_{backend_run_tag(cfg.backend.type)}+{_proxy_objective_name(cfg)}"
             f"{_loss_weight_suffix(cfg)}"
         )
     checkpoints_dir = os.path.join(cfg.exp.workspace, "checkpoints", model_name)
@@ -555,11 +524,11 @@ def train(cfg):
     logging.info(f"Using {device}.")
     logging.info(f"Model Params: {params_count} ({params_k:.3f} K, {params_m:.3f} M)")
     logging.info(
-        f"Loss weights -> supervised: {supervised_weight:.4f}, backend: {proxy_weight:.4f}, prior: {prior_weight:.4f}"
+        f"Loss weights -> supervised: {supervised_weight:.4f}, backend: {backend_weight:.4f}, prior: {prior_weight:.4f}"
     )
     logging.info(f"Differentiable supervision enabled: {proxy_enabled}")
     if proxy_enabled:
-        logging.info(f"Differentiable supervision backend: {backend_display_name(cfg.proxy.type)}")
+        logging.info(f"Differentiable supervision backend: {backend_display_name(cfg.backend.type)}")
         logging.info(f"Differentiable supervision objective: {_proxy_objective_name(cfg)}")
 
     start_iteration = 0
@@ -571,12 +540,11 @@ def train(cfg):
     # Optimizer
     optim_params = list(model.parameters())
     opt_name = str(cfg.exp.optim).lower()
-    if opt_name == "adamw":
-        optimizer = AdamW(optim_params, lr=cfg.exp.learnrate, weight_decay=cfg.exp.weight_decay)
-    elif opt_name == "adam":
-        optimizer = Adam(optim_params, lr=cfg.exp.learnrate, weight_decay=cfg.exp.weight_decay)
-    else:
-        raise ValueError(f"Unsupported optimizer: {cfg.exp.optim}")
+    optimizer_cls = {
+        "adamw": AdamW,
+        "adam": Adam,
+    }[opt_name]
+    optimizer = optimizer_cls(optim_params, lr=cfg.exp.learnrate, weight_decay=cfg.exp.weight_decay)
 
     init_wandb(cfg)
 
@@ -631,7 +599,7 @@ def train(cfg):
             total_loss = total_loss + prior_weight * prior_loss
             step_stats["prior_loss"] = prior_loss.detach()
 
-        if proxy_enabled and proxy_weight > 0:
+        if proxy_enabled and backend_weight > 0:
             proxy_stats = proxy_objective.compute(
                 batch_data_dict=batch_data_dict,
                 audio=audio,
@@ -639,9 +607,9 @@ def train(cfg):
                 iteration=iteration,
             )
             if "proxy_loss" in proxy_stats:
-                total_loss = total_loss + proxy_weight * proxy_stats["proxy_loss"]
+                total_loss = total_loss + backend_weight * proxy_stats["proxy_loss"]
                 step_stats["backend_loss"] = proxy_stats["proxy_loss"].detach()
-                step_stats["backend_weighted"] = (proxy_weight * proxy_stats["proxy_loss"]).detach()
+                step_stats["backend_weighted"] = (backend_weight * proxy_stats["proxy_loss"]).detach()
             for key, value in proxy_stats.items():
                 if key == "proxy_loss":
                     continue
@@ -649,11 +617,6 @@ def train(cfg):
                     continue
                 if torch.is_tensor(value) and value.ndim == 0:
                     step_stats[f"backend_{key}"] = value.detach()
-
-        if not step_stats:
-            raise RuntimeError(
-                "No batch loss was produced. Check loss.supervised_weight / loss.proxy_weight and whether the dataset provides the required targets."
-            )
 
         step_stats["total_loss"] = total_loss.detach()
         print(_format_loss_line(iteration, step_stats))

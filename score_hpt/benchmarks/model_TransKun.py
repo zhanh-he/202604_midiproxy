@@ -12,6 +12,7 @@ import torch.nn as nn
 import torchaudio.functional as AF
 
 from utilities import note_events_to_velocity_roll
+from pytorch.velo_model.pretrained_utils import resolve_frontend_pretrained_checkpoint
 
 
 class TransKunPretrained(nn.Module):
@@ -48,8 +49,8 @@ class TransKunPretrained(nn.Module):
         self.transkun_sample_rate = None
 
     def _resolve_repo_root(self) -> Path:
-        ckpt_path = Path(self.cfg.model.pretrained_checkpoint).expanduser().resolve()
-        if ckpt_path.exists():
+        ckpt_path = resolve_frontend_pretrained_checkpoint(self.cfg.model, model_label="transkun", required=False)
+        if ckpt_path is not None and ckpt_path.exists():
             # expected layout: <repo>/transkun/pretrained/2.0.pt
             # repo root is 3 levels above the checkpoint file.
             inferred = ckpt_path.parents[2]
@@ -59,8 +60,8 @@ class TransKunPretrained(nn.Module):
         return default_root
 
     def _resolve_conf_path(self) -> Path:
-        ckpt_path = Path(self.cfg.model.pretrained_checkpoint).expanduser().resolve()
-        if ckpt_path.exists():
+        ckpt_path = resolve_frontend_pretrained_checkpoint(self.cfg.model, model_label="transkun", required=False)
+        if ckpt_path is not None and ckpt_path.exists():
             sibling_conf = ckpt_path.with_suffix(".conf")
             if sibling_conf.exists():
                 return sibling_conf

@@ -30,36 +30,29 @@ class DDSPPianoProxy:
         self.src_sample_rate = int(cfg.feature.sample_rate)
         self.src_frames_per_second = float(cfg.feature.frames_per_second)
         self.segment_seconds = float(cfg.feature.segment_seconds)
-        self.crop_mode = str(getattr(cfg.proxy, "crop_mode", "random"))
+        self.crop_mode = str(getattr(cfg.backend, "crop_mode", "random"))
 
-        ddsp_piano_cfg = getattr(cfg.proxy, "ddsp_piano", None)
-        self.native_sample_rate = int(getattr(ddsp_piano_cfg, "native_sample_rate", 16000) or 16000)
-        self.native_frame_rate = int(getattr(ddsp_piano_cfg, "native_frame_rate", 250) or 250)
-        self.native_segment_seconds = float(getattr(ddsp_piano_cfg, "native_segment_seconds", 3.0) or 3.0)
+        diffsynth_piano_cfg = getattr(cfg.backend, "diffsynth_piano", None)
+        self.native_sample_rate = int(getattr(diffsynth_piano_cfg, "native_sample_rate", 16000) or 16000)
+        self.native_frame_rate = int(getattr(diffsynth_piano_cfg, "native_frame_rate", 250) or 250)
+        self.native_segment_seconds = float(getattr(diffsynth_piano_cfg, "native_segment_seconds", 3.0) or 3.0)
         self.crop_seconds = resolve_backend_segment_seconds(
             cfg,
-            backend_cfg=ddsp_piano_cfg,
+            backend_cfg=diffsynth_piano_cfg,
             backend_default=self.native_segment_seconds,
             total_segment_seconds=self.segment_seconds,
         )
-        # DDSP-Piano checkpoints are tied to their renderer contract. Keep dedicated per-backend
-        # fields and only fall back to the historical global proxy.sample_rate/frame_rate aliases.
-        self.sample_rate = int(getattr(ddsp_piano_cfg, "sample_rate", getattr(cfg.proxy, "sample_rate", self.native_sample_rate)) or self.native_sample_rate)
-        self.frame_rate = int(getattr(ddsp_piano_cfg, "frame_rate", getattr(cfg.proxy, "frame_rate", self.native_frame_rate)) or self.native_frame_rate)
-        self.n_synths = int(getattr(cfg.proxy.ddsp_piano, "n_synths", 16))
-        self.n_substrings = int(getattr(cfg.proxy.ddsp_piano, "n_substrings", 2))
-        self.n_piano_models = int(getattr(cfg.proxy.ddsp_piano, "n_piano_models", 10))
-        self.piano_model_index = int(getattr(cfg.proxy.ddsp_piano, "piano_model_index", 0))
+        self.sample_rate = int(getattr(diffsynth_piano_cfg, "sample_rate", self.native_sample_rate) or self.native_sample_rate)
+        self.frame_rate = int(getattr(diffsynth_piano_cfg, "frame_rate", self.native_frame_rate) or self.native_frame_rate)
+        self.n_synths = int(getattr(cfg.backend.diffsynth_piano, "n_synths", 16))
+        self.n_substrings = int(getattr(cfg.backend.diffsynth_piano, "n_substrings", 2))
+        self.n_piano_models = int(getattr(cfg.backend.diffsynth_piano, "n_piano_models", 10))
+        self.piano_model_index = int(getattr(cfg.backend.diffsynth_piano, "piano_model_index", 0))
         self.begin_note = int(cfg.feature.begin_note)
-        self.frame_key = str(getattr(cfg.proxy.ddsp_piano.score_keys, "frame", "frame_roll"))
-        self.onset_key = str(getattr(cfg.proxy.ddsp_piano.score_keys, "onset", "onset_roll"))
-        self.pedal_key = str(getattr(cfg.proxy.ddsp_piano.score_keys, "pedal", "pedal_frame_roll"))
+        self.frame_key = str(getattr(cfg.backend.diffsynth_piano.score_keys, "frame", "frame_roll"))
+        self.onset_key = str(getattr(cfg.backend.diffsynth_piano.score_keys, "onset", "onset_roll"))
+        self.pedal_key = str(getattr(cfg.backend.diffsynth_piano.score_keys, "pedal", "pedal_frame_roll"))
         self.duration = float(min(self.crop_seconds if self.crop_seconds > 0 else self.native_segment_seconds, self.segment_seconds))
-
-        if device.type != "cuda":
-            raise RuntimeError(
-                "DDSP-Piano proxy currently requires CUDA because the original DDSP-Piano code hardcodes .cuda() in several modules."
-            )
 
         proxy_root = self._resolve_proxy_root()
         self.model = self._build_model(proxy_root)
@@ -75,21 +68,15 @@ class DDSPPianoProxy:
         self.midi_values = midi_values.view(1, 1, -1)
 
     def _resolve_proxy_root(self) -> Path:
-        explicit = str(getattr(getattr(self.cfg.proxy, 'ddsp', None), 'project_root', '') or '').strip()
+        explicit = str(getattr(getattr(self.cfg.backend, 'diffsynth', None), 'project_root', '') or '').strip()
         if explicit:
             root = Path(explicit).expanduser().resolve()
         else:
-            generic = str(getattr(self.cfg.proxy, 'project_root', '') or '').strip()
+            generic = str(getattr(self.cfg.backend, 'project_root', '') or '').strip()
             if generic:
                 root = Path(generic).expanduser().resolve()
             else:
-                candidates = [
-                    Path(__file__).resolve().parents[3] / 'synthesizer' / 'ddsp-piano-pytorch',
-                    Path(__file__).resolve().parents[3] / 'synthesizer_ddsp' / 'ddsp-piano-pytorch',
-                ]
-                root = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
-        if not root.exists():
-            raise FileNotFoundError(f"DDSP project root not found: {root}")
+                root = Path(__file__).resolve().parents[3] / 'synthesizer' / 'ddsp-piano-pytorch'
         return root
 
     def _build_model(self, proxy_root: Path):
@@ -107,13 +94,7 @@ class DDSPPianoProxy:
             sample_rate=self.sample_rate,
         )
 
-        checkpoint = str(getattr(self.cfg.proxy, "checkpoint", "") or "").strip()
-        if not checkpoint:
-            raise ValueError("proxy.checkpoint must point to a trained DDSP-Piano checkpoint when proxy.enabled=true")
-        checkpoint_path = Path(checkpoint).expanduser().resolve()
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"DDSP-Piano checkpoint not found: {checkpoint_path}")
-
+        checkpoint_path = Path(str(getattr(self.cfg.backend, "checkpoint", "") or "")).expanduser().resolve()
         state = torch.load(checkpoint_path, map_location=self.device)
         if isinstance(state, torch.nn.Module):
             model = state
@@ -124,7 +105,7 @@ class DDSPPianoProxy:
         return model
 
     def _get_piano_model_index(self, batch_data_dict, batch_size: int) -> torch.Tensor:
-        batch_key = getattr(self.cfg.proxy.ddsp_piano, "piano_model_batch_key", "")
+        batch_key = getattr(self.cfg.backend.diffsynth_piano, "piano_model_batch_key", "")
         batch_key = str(batch_key or "").strip()
         if batch_key and batch_key in batch_data_dict:
             indices = move_data_to_device(batch_data_dict[batch_key], self.device).long()

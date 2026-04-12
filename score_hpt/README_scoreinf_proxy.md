@@ -31,8 +31,8 @@ Operational rules:
 
 - `filmunet` is always run with `score_informed.method=direct`
 - `hpt` may use `direct` or `note_editor`
-- `model.pretrained_checkpoint=""` means scratch training
-- `model.pretrained_checkpoint=/path/to/ckpt` means load and continue
+- `model.frontend_pretrained=""` means scratch training
+- `model.frontend_pretrained=/path/to/ckpt` means load and continue
 
 FiLMUNet notes:
 
@@ -61,8 +61,8 @@ Current Route III backend losses:
 - `piano_ssm_combined_rm`
 - `piano_ssm_spectral`
 - `piano_ssm_spectral_plus_log_rms`
-- `piano_ssm_spectral_plus_ddsp_loudness`
-- `ddsp_piano_loudness`
+- `piano_ssm_spectral_plus_diffsynth_loudness`
+- `diffsynth_piano_loudness`
 
 Recommended default:
 
@@ -72,7 +72,7 @@ Useful comparison set:
 
 - `piano_ssm_spectral`
 - `piano_ssm_spectral_plus_log_rms`
-- `piano_ssm_spectral_plus_ddsp_loudness`
+- `piano_ssm_spectral_plus_diffsynth_loudness`
 - `piano_ssm_combined_rm`
 
 ### Route IV

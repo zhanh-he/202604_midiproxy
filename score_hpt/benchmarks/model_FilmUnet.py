@@ -9,6 +9,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from pytorch.velo_model.pretrained_utils import resolve_frontend_pretrained_checkpoint
+
 # Inject a lightweight torchlibrosa shim so the original FiLM code can import it.
 _VENDOR_ROOT = Path(__file__).resolve().parent
 _AUDIO_SRC = _VENDOR_ROOT / "kim_ismir2024" / "src"
@@ -68,14 +70,13 @@ class FiLMUNet(nn.Module):
         kim_config.classes_num = int(cfg.feature.classes_num)
 
     def _maybe_load_pretrained(self, cfg) -> None:
-        raw_path = str(getattr(cfg.model, "pretrained_checkpoint", "") or "").strip()
-        if not raw_path:
+        checkpoint_path = resolve_frontend_pretrained_checkpoint(
+            getattr(cfg, "model", None),
+            model_label="filmunet",
+            required=False,
+        )
+        if checkpoint_path is None:
             return
-        checkpoint_path = Path(raw_path).expanduser()
-        if not checkpoint_path.is_file():
-            raise FileNotFoundError(
-                f"FiLM U-Net pretrained checkpoint not found at {checkpoint_path}"
-            )
         state_dict = self._prepare_state_dict(self._load_state_dict(checkpoint_path))
         self.model.load_state_dict(state_dict, strict=True)
 
@@ -117,8 +118,6 @@ class FiLMUNetPretrained(FiLMUNet):
                 checkpoint = checkpoint["model"]
             elif "state_dict" in checkpoint:
                 checkpoint = checkpoint["state_dict"]
-        if not isinstance(checkpoint, dict):
-            raise RuntimeError(f"Unsupported checkpoint format in {checkpoint_path}")
         keys = list(checkpoint.keys())
         if keys and all(k.startswith("module.") for k in keys):
             checkpoint = {k.replace("module.", "", 1): v for k, v in checkpoint.items()}

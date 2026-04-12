@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pytorch_utils import forward, forward_velo, move_data_to_device
 from velo_model import build_adapter
+from velo_model.pretrained_utils import get_frontend_pretrained_value
 from velo_model.model_registry import build_model
 from score_inf import build_score_inf, ScoreInfWrapper
 from feature_extractor import PsychoFeatureExtractor
@@ -335,7 +336,7 @@ def _resolve_checkpoint(cfg, explicit_path: Optional[str]) -> Path:
     if explicit_path:
         return Path(explicit_path).expanduser().resolve()
 
-    pretrained_path = str(getattr(cfg.model, "pretrained_checkpoint", "")).strip()
+    pretrained_path = get_frontend_pretrained_value(getattr(cfg, "model", None))
     if pretrained_path:
         return Path(pretrained_path).expanduser().resolve()
 
@@ -943,7 +944,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint-path",
         default=None,
-        help="Explicit checkpoint path. Otherwise resolved from model.pretrained_checkpoint or latest checkpoint under workspace.",
+        help="Explicit checkpoint path. Otherwise resolved from model.frontend_pretrained or latest checkpoint under workspace.",
     )
     parser.add_argument("--config-path", default="./config", help="Hydra config path.")
     parser.add_argument("--config-name", default="config", help="Hydra config name.")
@@ -951,7 +952,7 @@ if __name__ == "__main__":
         "--overrides",
         nargs="*",
         default=[],
-        help="Optional Hydra overrides, e.g. model.pretrained_checkpoint=/path/to/100000_iterations.pth model.type=hppnet",
+        help="Optional Hydra overrides, e.g. model.frontend_pretrained=/path/to/100000_iterations.pth model.type=hppnet",
     )
     parser.add_argument(
         "--soundfont-path",

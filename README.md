@@ -34,7 +34,7 @@ Unless you are deliberately running an ablation, the main repo contract is:
 - `n_fft=2048`
 
 Route III and Route IV now keep the Score-HPT front-end fixed at `10 s`.
-Backend crop length is ablated separately through `proxy.backend_segment_seconds`.
+Backend crop length is ablated separately through `backend.backend_segment_seconds`.
 
 ## Main docs
 
@@ -79,9 +79,9 @@ Defaults:
 
 - `MODEL_TYPE=hpt`
 - `SCORE_METHOD=note_editor`
-- `PRETRAINED_CHECKPOINT=""`
+- `FRONTEND_PRETRAINED=""`
 
-If you provide `PRETRAINED_CHECKPOINT=/path/to/ckpt`, training will load it before continuing.
+If you provide `FRONTEND_PRETRAINED=/path/to/ckpt`, training will load it before continuing.
 If you leave it empty, training is from scratch.
 
 ## Notes

@@ -108,7 +108,7 @@ def run_evaluation(
 
     validate_hop_contract(
         fps=float(eval_cfg.frames_per_second),
-        hop_size=int(cfg.proxy.supervision.hop_size),
+        hop_size=int(cfg.backend.supervision.hop_size),
         route_name=route_name,
     )
 

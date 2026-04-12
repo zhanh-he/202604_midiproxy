@@ -608,8 +608,8 @@ def _run_multi_mode(
 
 
 def main() -> None:
-    initialize(config_path="./config", job_name="kim_eval", version_base=None)
     enable_mireval, overrides = _consume_flag(sys.argv[1:], "--enable_mireval")
+    initialize(config_path="./config", job_name="kim_eval", version_base=None)
     cfg = compose(config_name="config", overrides=overrides)
     mode = str(getattr(cfg.exp, "run_infer", "single")).lower()
     if mode == "multi":

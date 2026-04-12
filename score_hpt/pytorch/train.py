@@ -8,7 +8,7 @@ import torch
 from torch.optim import Adam, AdamW
 
 from typing import Dict, Any, Optional, Tuple
-from hydra import initialize, compose
+from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 import wandb
@@ -483,7 +483,7 @@ def train(cfg):
 if __name__ == "__main__":
     cfg = _compose_cfg([
         "loss.supervised_weight=1.0",
-        "loss.proxy_weight=0.0",
+        "loss.backend_weight=0.0",
         "loss.velocity_prior_weight=0.0",
     ])
     train(cfg)

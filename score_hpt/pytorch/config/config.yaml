@@ -2,7 +2,7 @@ wandb:
   project: "202604_sfproxy"
   name: ""
   comment: "mel229"
-  tag: "5090" #5090
+  tag: "5090" #5090 3090 kaya
 
 exp:
   # workspace: "./workspaces" # kaya / scratch-friendly default
@@ -40,7 +40,7 @@ feature:
   # ---------------------------
   # dataloader.py params
   # Route IV keeps the Score-HPT / VeloEst front-end at 10 s.
-  # Only the frozen backend crop is ablated separately via proxy.backend_segment_seconds.
+  # Only the frozen backend crop is ablated separately via backend.backend_segment_seconds.
   segment_seconds: 10.
   hop_seconds: 1.
   # ---------------------------
@@ -88,7 +88,8 @@ model:
   input2: null # null | onset
   input3: null # keep null
   kim_condition: "frame" # kept for compatibility; FiLMUNet is fixed to frame conditioning
-  pretrained_checkpoint: "" # empty -> train from scratch, non-empty -> load before continuing
+  frontend_pretrained_mode: "scratch" # scratch | route2_piano_auto | route2_piano_specific
+  frontend_pretrained: "" # used only when frontend_pretrained_mode=route2_piano_specific
   hppnet_model_size: 128
 
 
@@ -114,10 +115,10 @@ loss:
   loss_type: "kim_bce_l1" # "velocity_bce" | "velocity_mse" | "kim_bce_l1"
   kim_loss_alpha: 0.5  # Weight of BCE term in Kim et al. 2024 BCE+L1 loss
   # Neutral defaults. Route-specific entrypoints set their own loss weights:
-  # Route II -> supervised=1, proxy=0, prior=0
-  # Route III/IV -> supervised=0, proxy=1, prior=0 unless overridden
+  # Route II -> supervised=1, backend=0, prior=0
+  # Route III/IV -> supervised=0, backend=1, prior=0 unless overridden
   supervised_weight: 0.0
-  proxy_weight: 0.0
+  backend_weight: 0.0
   velocity_prior_weight: 0.0
   velocity_prior_mean: 0.5
   velocity_prior_min_var: 0.01
@@ -143,13 +144,10 @@ train_eval:
 # ---------------------------
 # Frozen differentiable supervision backend (weak supervision)
 # ---------------------------
-proxy:
+backend:
   enabled: false
-  # Historical namespace note: the `proxy` block now hosts two different backend families.
-  #   DiffSynth = DDSP-based differentiable synthesizer replacement of a black-box synthesizer
-  #   DiffProxy = differentiable proxy of a black-box synthesizer (SFProxy family)
-  # Preferred backend names are diffsynth_piano | diffsynth_guitar | diffproxy .
-  # Historical aliases ddsp_* / sfproxy* are still accepted. ddsp_guitar_synth also maps to diffsynth_guitar.
+  # Frozen differentiable supervision backend.
+  # Supported backends: diffsynth_piano | diffsynth_guitar | diffproxy
   type: "diffsynth_piano"   # diffsynth_piano | diffsynth_guitar | diffproxy
   checkpoint: ""            # backend ckpt path: DDSP uses .pth/.pt, SFProxy uses Lightning .ckpt
   project_root: ""          # generic backend root fallback
@@ -159,7 +157,6 @@ proxy:
   # DiffProxy can still run on 2 / 5 / 10 s backend crops inside that fixed front-end segment.
   # Use 0 to fall back to each backend native/default segment length.
   backend_segment_seconds: 2.0   # Route IV default backend crop; ablate with 5 | 10
-  crop_seconds: 0.0              # legacy alias for backend_segment_seconds
   crop_mode: "random"           # random | center | full
   warmup_iterations: 0           # delay proxy loss until base velocity branch stabilizes
 
@@ -171,21 +168,17 @@ proxy:
     fft_size: ${feature.fft_size}
     hop_size: 221                # fixed Route IV contract at 22050 Hz / 100 fps
 
-  # Legacy aliases kept for older DDSP-Piano runs. Prefer proxy.ddsp_piano.* instead.
-  sample_rate: 16000
-  frame_rate: 250
-
-  ddsp:
+  diffsynth:
     project_root: ""       # optional backend-specific root. default: ../synthesizer/ddsp-*
 
   audio_loss:
-    type: "piano_ssm_spectral_plus_log_rms"   # preferred Route III choices: piano_ssm_combined | piano_ssm_combined_rm | piano_ssm_spectral | piano_ssm_spectral_plus_log_rms | piano_ssm_spectral_plus_ddsp_loudness | ddsp_piano_loudness
+    type: "piano_ssm_spectral_plus_log_rms"   # preferred Route III choices: piano_ssm_combined | piano_ssm_combined_rm | piano_ssm_spectral | piano_ssm_spectral_plus_log_rms | piano_ssm_spectral_plus_diffsynth_loudness | diffsynth_piano_loudness
     # ---------------------------------------------------------------------
     # Piano-SSM SMML = STFT loss + Mel-STFT loss + mean loss.
-    # These losses are evaluated at proxy.supervision.sample_rate.
+    # These losses are evaluated at backend.supervision.sample_rate.
     # ---------------------------------------------------------------------
     piano_ssm_combined:
-      frame_length: null        # null -> proxy.supervision.sample_rate
+      frame_length: null        # null -> backend.supervision.sample_rate
       stride: null              # null -> frame_length // 10
       mel_fft_size: null        # null -> Piano-SSM repo scaling
       mel_win_length: null
@@ -223,7 +216,7 @@ proxy:
       overlap: 0.75
       eps: 1.0e-5
 
-    ddsp_piano_loudness:
+    diffsynth_piano_loudness:
       frame_rate: 250
       n_fft: 2048
       range_db: 120.0
@@ -244,11 +237,11 @@ proxy:
     # Stronger loudness-aware proxy objective.
     # Auxiliary branch = DDSP-style loudness contour loss.
     # ---------------------------------------------------------------------
-    piano_ssm_spectral_plus_ddsp_loudness:
+    piano_ssm_spectral_plus_diffsynth_loudness:
       spectral_weight: 1.0
       loudness_weight: 0.05
 
-  ddsp_piano:
+  diffsynth_piano:
     # Native DDSP-Piano training / checkpoint contract.
     native_sample_rate: 22050
     native_frame_rate: 100
@@ -267,7 +260,7 @@ proxy:
       onset: "onset_roll"
       pedal: "pedal_frame_roll"
 
-  ddsp_guitar:
+  diffsynth_guitar:
     max_fret: 24
     native_sample_rate: 22050
     native_frame_rate: 100
@@ -277,15 +270,14 @@ proxy:
     hop_size: 0
     n_fft: 2048
 
-  sfproxy:
+  diffproxy:
     project_root: ""        # optional backend-specific root. default: ../synth-proxy (flat src/ + configs/)
     instrument_name: "salamander_piano"
     feature_name: "note_dynamics_v1"
     # Route IV stable export contract.
     native_sample_rate: 22050
     native_segment_seconds: 2.0   # DiffProxy native/default contract; Route IV can still override to 5 | 10 s crops
-    sample_rate: 0            # 0 -> use proxy.supervision.sample_rate to align DiffProxy with Score-HPT
-    segment_seconds: 2.0      # legacy alias; native/default backend segment length
+    sample_rate: 0            # 0 -> use backend.supervision.sample_rate to align DiffProxy with Score-HPT
     loss_type: "smooth_l1"   # smooth_l1 | l1 | mse
     loss_beta: 1.0
     use_gt_aligned_note_events: true   # use GT aligned note list; velocity is read from the predicted roll at each GT onset frame
@@ -295,7 +287,7 @@ proxy:
       max_notes: 512
       min_duration_frames: 1
     feature:
-      n_fft: 0                # 0 -> use proxy.supervision.fft_size
+      n_fft: 0                # 0 -> use backend.supervision.fft_size
       hop: 221                # fixed Route IV contract at 22050 Hz / 100 fps
       win_length: null
       harmonic_count: 5
@@ -335,7 +327,7 @@ route1:
     fallback_velocity: 64
     note_sample_rate: ${feature.sample_rate}
     note_fft_size: ${feature.fft_size}
-    note_hop: ${proxy.supervision.hop_size}
+    note_hop: ${backend.supervision.hop_size}
     harmonic_count: 5
     band_bins: 1
     energy_window_s: 0.12
@@ -354,9 +346,9 @@ route1:
     split: "test"
     maps_pianos: "both"
     render_sr: 44100
-    eval_sr: ${proxy.supervision.sample_rate}
+    eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}
-    fft_size: ${proxy.supervision.fft_size}
+    fft_size: ${backend.supervision.fft_size}
     bssl_mode: "sone"
     num_samples: 2048
     normalization: "zscore"
@@ -383,9 +375,9 @@ flat:
     split: "test"
     maps_pianos: "both"
     render_sr: 44100
-    eval_sr: ${proxy.supervision.sample_rate}
+    eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}
-    fft_size: ${proxy.supervision.fft_size}
+    fft_size: ${backend.supervision.fft_size}
     bssl_mode: "sone"
     num_samples: 2048
     normalization: "zscore"
@@ -394,7 +386,7 @@ flat:
 
 route2:
   infer:
-    checkpoint_path: ""                      # empty -> resolve from model.pretrained_checkpoint or latest checkpoint
+    checkpoint_path: ""                      # empty -> resolve from model.frontend_pretrained or latest checkpoint
     out_dir: "${exp.workspace}/route2/${dataset.test_set}"
     split: "test"
     maps_pianos: "both"
@@ -415,9 +407,9 @@ route2:
     split: "test"
     maps_pianos: "both"
     render_sr: 44100
-    eval_sr: ${proxy.supervision.sample_rate}
+    eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}
-    fft_size: ${proxy.supervision.fft_size}
+    fft_size: ${backend.supervision.fft_size}
     bssl_mode: "sone"
     num_samples: 2048
     normalization: "zscore"

@@ -13,7 +13,7 @@ from score_inf.utils import safe_logit
 
 from .base import BaseAdapter, ensure_btp88, register_adapter
 from .pretrained_utils import (
-    resolve_pretrained_checkpoint,
+    resolve_frontend_pretrained_checkpoint,
     select_prefixed_substate,
     unwrap_checkpoint_state_dict,
 )
@@ -210,8 +210,8 @@ def _load_hpt_pretrained_weights(model: nn.Module, checkpoint_path: Path) -> Non
 
 
 def _maybe_load_hpt_pretrained_weights(model: nn.Module, cfg, model_label: str = "hpt") -> None:
-    checkpoint_path = resolve_pretrained_checkpoint(
-        getattr(cfg.model, "pretrained_checkpoint", ""),
+    checkpoint_path = resolve_frontend_pretrained_checkpoint(
+        getattr(cfg, "model", None),
         model_label=model_label,
         required=False,
     )

@@ -25,27 +25,22 @@ def resolve_backend_segment_seconds(
     """Resolve the backend segment length used inside a fixed Score-HPT segment.
 
     Priority:
-      1. proxy.backend_segment_seconds
-      2. legacy proxy.crop_seconds
-      3. backend-specific native/segment defaults
-      4. explicit backend_default
+      1. backend.backend_segment_seconds
+      2. backend-specific native/default segment lengths
+      3. explicit backend_default
 
     The returned value is capped to total_segment_seconds when provided.
     """
     resolved = 0.0
-    proxy_cfg = getattr(cfg, 'proxy', None)
-    for key in ('backend_segment_seconds', 'crop_seconds'):
-        raw = getattr(proxy_cfg, key, 0.0) if proxy_cfg is not None else 0.0
-        try:
-            value = float(raw or 0.0)
-        except Exception:
-            value = 0.0
-        if value > 0:
-            resolved = value
-            break
+    backend_cfg_root = getattr(cfg, 'backend', None)
+    raw = getattr(backend_cfg_root, 'backend_segment_seconds', 0.0) if backend_cfg_root is not None else 0.0
+    try:
+        resolved = float(raw or 0.0)
+    except Exception:
+        resolved = 0.0
 
     if resolved <= 0 and backend_cfg is not None:
-        for key in ('backend_segment_seconds', 'native_segment_seconds', 'segment_seconds'):
+        for key in ('backend_segment_seconds', 'native_segment_seconds'):
             raw = getattr(backend_cfg, key, 0.0)
             try:
                 value = float(raw or 0.0)
@@ -65,7 +60,7 @@ def resolve_backend_segment_seconds(
 
 
 def resolve_supervision_sample_rate(cfg) -> int:
-    supervision_cfg = getattr(getattr(cfg, 'proxy', None), 'supervision', None)
+    supervision_cfg = getattr(getattr(cfg, 'backend', None), 'supervision', None)
     value = int(getattr(supervision_cfg, 'sample_rate', 0) or 0)
     if value > 0:
         return value
@@ -74,7 +69,7 @@ def resolve_supervision_sample_rate(cfg) -> int:
 
 
 def resolve_supervision_frame_rate(cfg) -> float:
-    supervision_cfg = getattr(getattr(cfg, 'proxy', None), 'supervision', None)
+    supervision_cfg = getattr(getattr(cfg, 'backend', None), 'supervision', None)
     value = float(getattr(supervision_cfg, 'frame_rate', 0.0) or 0.0)
     if value > 0:
         return value
@@ -83,7 +78,7 @@ def resolve_supervision_frame_rate(cfg) -> float:
 
 
 def resolve_supervision_fft_size(cfg) -> int:
-    supervision_cfg = getattr(getattr(cfg, 'proxy', None), 'supervision', None)
+    supervision_cfg = getattr(getattr(cfg, 'backend', None), 'supervision', None)
     value = int(getattr(supervision_cfg, 'fft_size', 0) or 0)
     if value > 0:
         return value
@@ -92,7 +87,7 @@ def resolve_supervision_fft_size(cfg) -> int:
 
 
 def resolve_supervision_hop_size(cfg, sample_rate: Optional[int] = None, frame_rate: Optional[float] = None) -> int:
-    supervision_cfg = getattr(getattr(cfg, 'proxy', None), 'supervision', None)
+    supervision_cfg = getattr(getattr(cfg, 'backend', None), 'supervision', None)
     value = int(getattr(supervision_cfg, 'hop_size', 0) or 0)
     if value > 0:
         return value

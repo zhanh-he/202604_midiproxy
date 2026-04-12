@@ -244,7 +244,7 @@ def _align_audio_pair(pred_audio: torch.Tensor, target_audio: torch.Tensor) -> T
 
 
 def _get_audio_loss_cfg(cfg, section_name: Optional[str] = None):
-    audio_cfg = getattr(getattr(cfg, "proxy", None), "audio_loss", None)
+    audio_cfg = getattr(getattr(cfg, "backend", None), "audio_loss", None)
     if audio_cfg is None:
         return None
     if section_name is None:
@@ -267,8 +267,8 @@ def _piano_ssm_default_fft_sizes(sample_rate: int) -> Tuple[int, ...]:
 
 
 def get_audio_loss_name(cfg) -> str:
-    """Return the canonical proxy audio-loss name from the config."""
-    audio_cfg = getattr(getattr(cfg, "proxy", None), "audio_loss", None)
+    """Return the canonical backend audio-loss name from the config."""
+    audio_cfg = getattr(getattr(cfg, "backend", None), "audio_loss", None)
     raw_name = None
     if audio_cfg is not None:
         raw_name = getattr(audio_cfg, "type", None)
@@ -291,14 +291,14 @@ def get_audio_loss_name(cfg) -> str:
         "spectral_plus_log_rms": "piano_ssm_spectral_plus_log_rms",
         "piano_ssm_spectral_plus_logrms": "piano_ssm_spectral_plus_log_rms",
         "piano_ssm_spectral_plus_rms": "piano_ssm_spectral_plus_log_rms",
-        "spectral_plus_loudness": "piano_ssm_spectral_plus_ddsp_loudness",
-        "piano_ssm_spectral_plus_loudness": "piano_ssm_spectral_plus_ddsp_loudness",
-        "piano_ssm_spectral_plus_ddsploudness": "piano_ssm_spectral_plus_ddsp_loudness",
+        "spectral_plus_loudness": "piano_ssm_spectral_plus_diffsynth_loudness",
+        "piano_ssm_spectral_plus_loudness": "piano_ssm_spectral_plus_diffsynth_loudness",
+        "piano_ssm_spectral_plus_diffsynthloudness": "piano_ssm_spectral_plus_diffsynth_loudness",
         "combined_rm": "piano_ssm_combined_rm",
         "piano_ssm_combinedrm": "piano_ssm_combined_rm",
-        "loudness": "ddsp_piano_loudness",
-        "ddsp_loudness": "ddsp_piano_loudness",
-        "ddsp_piano_loudnessloss": "ddsp_piano_loudness",
+        "loudness": "diffsynth_piano_loudness",
+        "diffsynth_loudness": "diffsynth_piano_loudness",
+        "diffsynth_piano_loudnessloss": "diffsynth_piano_loudness",
     }
     return alias_map.get(raw_name, raw_name)
 
@@ -1107,8 +1107,8 @@ AUDIO_LOSS_TYPES = {
     "piano_ssm_combined_rm": PianoSSMCombinedRMLoss,
     "piano_ssm_spectral": PianoSSMSpectralLoss,
     "piano_ssm_spectral_plus_log_rms": PianoSSMSpectralPlusLogRMSLoss,
-    "piano_ssm_spectral_plus_ddsp_loudness": PianoSSMSpectralPlusDDSPLoudnessLoss,
-    "ddsp_piano_loudness": DDSPPianoLoudnessLoss,
+    "piano_ssm_spectral_plus_diffsynth_loudness": PianoSSMSpectralPlusDDSPLoudnessLoss,
+    "diffsynth_piano_loudness": DDSPPianoLoudnessLoss,
 }
 
 
@@ -1141,8 +1141,8 @@ def _build_log_rms_aux_loss_from_cfg(cfg) -> GlobalLogRMSLoss:
 
 
 
-def _build_ddsp_piano_loudness_loss_from_cfg(cfg, sample_rate: int, frame_rate: int | None = None) -> DDSPPianoLoudnessLoss:
-    audio_cfg = _get_audio_loss_cfg(cfg, "ddsp_piano_loudness")
+def _build_diffsynth_piano_loudness_loss_from_cfg(cfg, sample_rate: int, frame_rate: int | None = None) -> DDSPPianoLoudnessLoss:
+    audio_cfg = _get_audio_loss_cfg(cfg, "diffsynth_piano_loudness")
     return DDSPPianoLoudnessLoss(
         sample_rate=sample_rate,
         frame_rate=int(frame_rate if frame_rate is not None else getattr(audio_cfg, "frame_rate", 250)),
@@ -1155,13 +1155,13 @@ def _build_ddsp_piano_loudness_loss_from_cfg(cfg, sample_rate: int, frame_rate: 
 
 
 def build_audio_loss(cfg, sample_rate_override=None, frame_rate_override=None):
-    """Build the proxy audio loss selected by `proxy.audio_loss.type`."""
+    """Build the backend audio loss selected by `backend.audio_loss.type`."""
     audio_loss_name = get_audio_loss_name(cfg)
     if sample_rate_override is not None:
         sample_rate = int(sample_rate_override)
     else:
         sample_rate = int(
-            getattr(getattr(cfg, "proxy", None), "sample_rate", getattr(getattr(cfg, "feature", None), "sample_rate", 16000))
+            getattr(getattr(cfg, "backend", None), "sample_rate", getattr(getattr(cfg, "feature", None), "sample_rate", 16000))
         )
 
     if audio_loss_name == "piano_ssm_combined":
@@ -1209,10 +1209,10 @@ def build_audio_loss(cfg, sample_rate_override=None, frame_rate_override=None):
             log_rms_weight=float(getattr(audio_cfg, "log_rms_weight", 0.05)),
         )
 
-    if audio_loss_name == "piano_ssm_spectral_plus_ddsp_loudness":
-        audio_cfg = _get_audio_loss_cfg(cfg, "piano_ssm_spectral_plus_ddsp_loudness")
+    if audio_loss_name == "piano_ssm_spectral_plus_diffsynth_loudness":
+        audio_cfg = _get_audio_loss_cfg(cfg, "piano_ssm_spectral_plus_diffsynth_loudness")
         spectral_loss = _build_piano_ssm_spectral_loss_from_cfg(cfg, sample_rate=sample_rate)
-        loudness_loss = _build_ddsp_piano_loudness_loss_from_cfg(
+        loudness_loss = _build_diffsynth_piano_loudness_loss_from_cfg(
             cfg,
             sample_rate=sample_rate,
             frame_rate=int(frame_rate_override) if frame_rate_override is not None else None,
@@ -1224,15 +1224,15 @@ def build_audio_loss(cfg, sample_rate_override=None, frame_rate_override=None):
             loudness_weight=float(getattr(audio_cfg, "loudness_weight", 0.05)),
         )
 
-    if audio_loss_name == "ddsp_piano_loudness":
-        return _build_ddsp_piano_loudness_loss_from_cfg(
+    if audio_loss_name == "diffsynth_piano_loudness":
+        return _build_diffsynth_piano_loudness_loss_from_cfg(
             cfg,
             sample_rate=sample_rate,
             frame_rate=int(frame_rate_override) if frame_rate_override is not None else None,
         )
 
     available = ", ".join(sorted(AUDIO_LOSS_TYPES.keys()))
-    raise ValueError(f"Unknown proxy.audio_loss.type: {audio_loss_name!r}. Available: {available}")
+    raise ValueError(f"Unknown backend.audio_loss.type: {audio_loss_name!r}. Available: {available}")
 
 
 # -----------------------------------------------------------------------------
