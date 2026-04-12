@@ -108,6 +108,11 @@ def _backend_suffix(cfg) -> str:
     return "+" + "+".join(parts)
 
 
+def _frontend_pretrained_suffix(cfg) -> str:
+    mode = _clean_name_part(getattr(cfg.model, "frontend_pretrained_mode", "scratch")) or "scratch"
+    return f"+frontend_{mode}"
+
+
 def _loss_weight_suffix(cfg) -> str:
     sup_weight = float(getattr(cfg.loss, "supervised_weight", 0.0) or 0.0)
     backend_weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
@@ -136,6 +141,7 @@ def _train_wandb_name(cfg):
         name_parts.extend([str(cfg.model.type), method])
         name = (
             f"{'-'.join(name_parts)}"
+            f"{_frontend_pretrained_suffix(cfg)}"
             f"{_backend_suffix(cfg)}{_loss_weight_suffix(cfg)}"
             f"-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
         )

@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
-#SBATCH --array=0-127
+#SBATCH --array=0-31
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=zhanh.he@research.uwa.edu.au
 
@@ -60,10 +60,11 @@ LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 SEGMENTS=("2" "5")
 AUDIO_LOSSES=(
   "piano_ssm_spectral"
-  "piano_ssm_spectral_plus_log_rms"
-  "piano_ssm_spectral_plus_diffsynth_loudness"
-  "piano_ssm_combined_rm"
 )
+#  "piano_ssm_spectral_plus_log_rms"
+#  "piano_ssm_spectral_plus_diffsynth_loudness"
+#  "piano_ssm_combined_rm"
+
 SUP_BACKEND_PAIRS_STR=${SUP_BACKEND_PAIRS:-"0.0,1.0 0.5,0.5"}
 PRIOR_WEIGHTS_STR=${PRIOR_WEIGHTS:-"0.0 0.01"}
 DDSP_PHASE=${DDSP_PHASE:-1}

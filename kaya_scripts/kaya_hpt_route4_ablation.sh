@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
-#SBATCH --array=0-287
+#SBATCH --array=0-31
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=zhanh.he@research.uwa.edu.au
 
@@ -55,9 +55,9 @@ FRONTEND_PRETRAINED=${FRONTEND_PRETRAINED:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 
 # backend
-SAMPLERS=("coverage" "mixed" "realism")
+SAMPLERS=("mixed") # "coverage"  "realism"
 SEGMENTS=("2" "5")
-PROXY_LOSSES=("smooth_l1" "l1" "mse")
+PROXY_LOSSES=("smooth_l1") #  "l1" "mse"
 SUP_BACKEND_PAIRS_STR=${SUP_BACKEND_PAIRS:-"0.0,1.0 0.5,0.5"}
 PRIOR_WEIGHTS_STR=${PRIOR_WEIGHTS:-"0.0 0.01"}
 SFPROXY_CKPT_KIND=${SFPROXY_CKPT_KIND:-final}
