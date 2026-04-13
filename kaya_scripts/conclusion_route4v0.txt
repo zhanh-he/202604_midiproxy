@@ -1,0 +1,25 @@
+我们的route4 v0 ablation有结果了。新设计我正在跑，所以先讨论一下老的结果。
+
+1. prior loss-0 或者 0.01没有太大区别，感觉是25.5 > 25的略微提升（对于hpt）。在filmunet上没有差别。
+
+2. supervised 0.5 + backend 0.5是最大功臣，把velo mae从28下降到了22.但是，依旧是18 >> 26 >> 22这样的先变很差再缓慢好一点点的流程。而且，30k iteration感觉已经不会再变好了。
+
+3. pretrained route2有作用，但是只在一开始有好处，越到后面越感觉不出来(smooth l1组)。
+- sup0.5 + back0.5 + pretrained: 12 > 25 > 24 > 23
+- sup0.5 + back0.5 from scratch: 18 > 25 > 24 > 24
+- sup0 + back1 + pretrained: 12 > 32 > 30 > 31
+- sup0 + back1 from scratch: 18 > 32 > 30 > 31
+
+4. mse 在sup0.5 + back0.5 （+0.01prior）的时候不如smooth_l1, 差距是25 > 28这样的3点。在sup0+back1（+0.01prior）的时候和smooth_l1的表现完全一样了。感觉30那里就是基本的失败了。
+l1的表现比smooth l1的表现稍微差一点（26 vs 24），大约2点的velocity mae分差。
+
+5. 最好的是 sup0.5 + back0.5 + pretrained + smooth_l1 (23)
+    第二的是 sup0.5 + back0.5 + scratch + smooth_l1 (24)
+
+6. filmunet的pretrained加载很有趣，和hpt是反过来的（加载pretrained最初会很差）：
+- sup0.5 + back0.5 + pretrained: 32 > 24 > 25 > 23
+- sup0.5 + back0.5 from scratch: 15 > 24 > 25 > 23
+- sup0 + back1 + pretrained: 32 > 31 > 30 > 31
+- sup0 + back1 from scratch: 15 > 32 > 28 > 30
+
+上面的结论在filmunet和hpt (+note_editor)上面都一致。

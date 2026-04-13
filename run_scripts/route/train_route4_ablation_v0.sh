@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 . "${SCRIPT_DIR}/score_hpt_profile.sh"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
@@ -22,15 +22,6 @@ PROXY_CKPT="${PROXY_CKPT:-${1:-}}"
 SUPERVISED_WEIGHT="${SUPERVISED_WEIGHT:-0.0}"
 BACKEND_WEIGHT="${BACKEND_WEIGHT:-1.0}"
 PRIOR_WEIGHT="${PRIOR_WEIGHT:-0.0}"
-SATURATION_WEIGHT="${SATURATION_WEIGHT:-0.0}"
-# New local recipes: sup,backend,prior,saturation. Set WEIGHT_RECIPES="" to fall back to the single weights above.
-WEIGHT_RECIPES="${WEIGHT_RECIPES:-0.8,0.1,0.0,0.01 0.7,0.2,0.0,0.01 0.8,0.1,0.01,0.01}"
-BACKEND_WARMUP_ITERATIONS="${BACKEND_WARMUP_ITERATIONS:-}"
-USE_ONSET_WINDOW_POOLING="${USE_ONSET_WINDOW_POOLING:-}"
-ONSET_WINDOW_LEFT="${ONSET_WINDOW_LEFT:-1}"
-ONSET_WINDOW_RIGHT="${ONSET_WINDOW_RIGHT:-2}"
-ONSET_WINDOW_REDUCTION="${ONSET_WINDOW_REDUCTION:-max}"
-SFPROXY_FEATURE_WEIGHTS="${SFPROXY_FEATURE_WEIGHTS:-}"
 
 # evaluation / misc
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
@@ -101,10 +92,6 @@ run_one() {
   local sampler="$2"
   local ckpt="$3"
   local loss="$4"
-  local supervised_weight="$5"
-  local backend_weight="$6"
-  local prior_weight="$7"
-  local saturation_weight="$8"
   local score_method
   local model_input2
 
@@ -122,20 +109,6 @@ run_one() {
     pretrained_args+=("model.frontend_pretrained=${FRONTEND_PRETRAINED}")
   fi
 
-  local run_args=()
-  if [ -n "${BACKEND_WARMUP_ITERATIONS}" ]; then
-    run_args+=("backend.warmup_iterations=${BACKEND_WARMUP_ITERATIONS}")
-  fi
-  if [ -n "${USE_ONSET_WINDOW_POOLING}" ]; then
-    run_args+=("backend.diffproxy.use_onset_window_pooling=${USE_ONSET_WINDOW_POOLING}")
-    run_args+=("backend.diffproxy.onset_window_left=${ONSET_WINDOW_LEFT}")
-    run_args+=("backend.diffproxy.onset_window_right=${ONSET_WINDOW_RIGHT}")
-    run_args+=("backend.diffproxy.onset_window_reduction=${ONSET_WINDOW_REDUCTION}")
-  fi
-  if [ -n "${SFPROXY_FEATURE_WEIGHTS}" ]; then
-    run_args+=("backend.diffproxy.feature_weights=${SFPROXY_FEATURE_WEIGHTS}")
-  fi
-
   echo "============================================================"
   echo "Route IV ablation"
   echo "Train set         : ${TRAIN_SET}"
@@ -146,7 +119,6 @@ run_one() {
   echo "Backend seg (s)   : ${segment}"
   echo "Sampler           : ${sampler}"
   echo "Backend loss      : ${loss}"
-  echo "Weights (sup/backend/prior/sat): ${supervised_weight}/${backend_weight}/${prior_weight}/${saturation_weight}"
   echo "Instrument name   : ${INSTRUMENT_NAME}"
   echo "============================================================"
 
@@ -158,10 +130,9 @@ run_one() {
     "model.type=${MODEL_TYPE}" \
     "model.input2=${model_input2}" \
     "score_informed.method=${score_method}" \
-    "loss.supervised_weight=${supervised_weight}" \
-    "loss.backend_weight=${backend_weight}" \
-    "loss.velocity_prior_weight=${prior_weight}" \
-    "loss.velocity_saturation_weight=${saturation_weight}" \
+    "loss.supervised_weight=${SUPERVISED_WEIGHT}" \
+    "loss.backend_weight=${BACKEND_WEIGHT}" \
+    "loss.velocity_prior_weight=${PRIOR_WEIGHT}" \
     "backend.enabled=true" \
     "backend.type=diffproxy" \
     "backend.project_root=${PROJECT_ROOT}" \
@@ -170,36 +141,13 @@ run_one() {
     "backend.diffproxy.instrument_name=${INSTRUMENT_NAME}" \
     "backend.diffproxy.loss_type=${loss}" \
     "${pretrained_args[@]}" \
-    "${run_args[@]}" \
     "${extra_args[@]}"
-}
-
-run_recipe_grid() {
-  local segment="$1"
-  local sampler="$2"
-  local ckpt="$3"
-  local loss="$4"
-  if [ -n "${WEIGHT_RECIPES}" ]; then
-    local recipe
-    local sup_w
-    local backend_w
-    local prior_w
-    local sat_w
-    for recipe in ${WEIGHT_RECIPES}; do
-      IFS=, read -r sup_w backend_w prior_w sat_w <<< "${recipe}"
-      prior_w="${prior_w:-0.0}"
-      sat_w="${sat_w:-0.0}"
-      run_one "${segment}" "${sampler}" "${ckpt}" "${loss}" "${sup_w}" "${backend_w}" "${prior_w}" "${sat_w}"
-    done
-  else
-    run_one "${segment}" "${sampler}" "${ckpt}" "${loss}" "${SUPERVISED_WEIGHT}" "${BACKEND_WEIGHT}" "${PRIOR_WEIGHT}" "${SATURATION_WEIGHT}"
-  fi
 }
 
 if [ -n "${PROXY_CKPT}" ]; then
   for segment in ${SEGMENT_LIST}; do
     for loss in ${LOSS_TYPES}; do
-      run_recipe_grid "${segment}" "manual" "${PROXY_CKPT}" "${loss}"
+      run_one "${segment}" "manual" "${PROXY_CKPT}" "${loss}"
     done
   done
   exit 0
@@ -209,7 +157,7 @@ for segment in ${SEGMENT_LIST}; do
   for sampler in ${SAMPLERS}; do
     ckpt="$(resolve_sfproxy_ckpt "${sampler}" "${segment}")"
     for loss in ${LOSS_TYPES}; do
-      run_recipe_grid "${segment}" "${sampler}" "${ckpt}" "${loss}"
+      run_one "${segment}" "${sampler}" "${ckpt}" "${loss}"
     done
   done
 done

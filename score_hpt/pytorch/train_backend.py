@@ -29,6 +29,7 @@ from losses import (
     get_loss_func,
     has_supervised_velocity_target,
     velocity_prior_loss,
+    velocity_saturation_loss,
 )
 from evaluate import SegmentEvaluator
 
@@ -99,16 +100,12 @@ def _backend_suffix(cfg) -> str:
     weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     if not enabled or weight <= 0:
         return ""
-    backend_tag = backend_run_tag(getattr(cfg.backend, "type", "diffsynth_piano"))
     backend_objective = _proxy_objective_name(cfg)
-    parts = [f"backend_{backend_tag}", backend_objective]
+    parts = [backend_objective]
     if is_diffproxy_backend(getattr(cfg.backend, "type", "")):
         instrument = _clean_name_part(getattr(cfg.backend.diffproxy, "instrument_name", ""))
-        crop_mode = _clean_name_part(getattr(cfg.backend, "crop_mode", ""))
         if instrument:
             parts.append(instrument)
-        if crop_mode:
-            parts.append(f"crop_{crop_mode}")
     return "+" + "+".join(parts)
 
 
@@ -121,6 +118,7 @@ def _loss_weight_suffix(cfg) -> str:
     sup_weight = float(getattr(cfg.loss, "supervised_weight", 0.0) or 0.0)
     backend_weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
+    saturation_weight = float(getattr(cfg.loss, "velocity_saturation_weight", 0.0) or 0.0)
 
     parts = [
         f"sup{_fmt_tag_value(f'{sup_weight:g}') or '0'}",
@@ -128,6 +126,8 @@ def _loss_weight_suffix(cfg) -> str:
     ]
     if prior_weight > 0:
         parts.append(f"prior{_fmt_tag_value(f'{prior_weight:g}') or '0'}")
+    if saturation_weight > 0:
+        parts.append(f"sat{_fmt_tag_value(f'{saturation_weight:g}') or '0'}")
     return "+" + "+".join(parts)
 
 
@@ -147,7 +147,6 @@ def _train_wandb_name(cfg):
             f"{'-'.join(name_parts)}"
             f"{_frontend_pretrained_suffix(cfg)}"
             f"{_backend_suffix(cfg)}{_loss_weight_suffix(cfg)}"
-            f"-{cfg.feature.audio_feature}-sr{cfg.feature.sample_rate}"
         )
     return f"{name}-{tag}" if tag else name
 
@@ -466,6 +465,7 @@ def _select_console_train_losses(statistics: Dict[str, float]) -> Dict[str, floa
         "supervised_loss",
         "backend_loss",
         "prior_loss",
+        "saturation_loss",
     )
     return {key: statistics[key] for key in keep_keys if key in statistics}
 
@@ -473,7 +473,7 @@ def _select_console_train_losses(statistics: Dict[str, float]) -> Dict[str, floa
 
 def _format_loss_line(iteration: int, values: Dict[str, Any]) -> str:
     ordered = [f"iter {iteration}"]
-    for key in ("total_loss", "supervised_loss", "backend_loss", "prior_loss"):
+    for key in ("total_loss", "supervised_loss", "backend_loss", "prior_loss", "saturation_loss"):
         if key in values:
             ordered.append(f"{key} {_tensor_to_float(values[key]):.6f}")
     return " ".join(ordered)
@@ -504,6 +504,10 @@ def train(cfg):
 
     supervised_weight = float(getattr(cfg.loss, "supervised_weight", 1.0) or 0.0)
     target_rolls = _required_target_rolls(cfg.loss.loss_type) if supervised_weight > 0 else []
+    if bool(getattr(cfg.loss, "velocity_prior_onset_only", True)) and float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0) > 0:
+        target_rolls = list(dict.fromkeys(target_rolls + ["onset_roll"]))
+    if bool(getattr(cfg.loss, "velocity_saturation_onset_only", True)) and float(getattr(cfg.loss, "velocity_saturation_weight", 0.0) or 0.0) > 0:
+        target_rolls = list(dict.fromkeys(target_rolls + ["onset_roll"]))
     train_mode, switch_iteration = _resolve_train_schedule(cfg, score_cfg)
     post = build_score_inf(method, score_params).to(device)
     model = ScoreInfWrapper(adapter, post, freeze_base=False).to(device)
@@ -521,6 +525,7 @@ def train(cfg):
     proxy_enabled = bool(getattr(proxy_objective, "enabled", False))
     backend_weight = float(getattr(cfg.loss, "backend_weight", 0.0) or 0.0)
     prior_weight = float(getattr(cfg.loss, "velocity_prior_weight", 0.0) or 0.0)
+    saturation_weight = float(getattr(cfg.loss, "velocity_saturation_weight", 0.0) or 0.0)
 
     # Paths for results
     model_name = get_model_name(cfg)
@@ -543,7 +548,7 @@ def train(cfg):
     logging.info(f"Using {device}.")
     logging.info(f"Model Params: {params_count} ({params_k:.3f} K, {params_m:.3f} M)")
     logging.info(
-        f"Loss weights -> supervised: {supervised_weight:.4f}, backend: {backend_weight:.4f}, prior: {prior_weight:.4f}"
+        f"Loss weights -> supervised: {supervised_weight:.4f}, backend: {backend_weight:.4f}, prior: {prior_weight:.4f}, saturation: {saturation_weight:.4f}"
     )
     logging.info(f"Differentiable supervision enabled: {proxy_enabled}")
     if proxy_enabled:
@@ -617,6 +622,13 @@ def train(cfg):
             prior_loss = velocity_prior_loss(cfg, out, batch_torch)
             total_loss = total_loss + prior_weight * prior_loss
             step_stats["prior_loss"] = prior_loss.detach()
+            step_stats["prior_weighted"] = (prior_weight * prior_loss).detach()
+
+        if saturation_weight > 0:
+            saturation_loss = velocity_saturation_loss(cfg, out, batch_torch)
+            total_loss = total_loss + saturation_weight * saturation_loss
+            step_stats["saturation_loss"] = saturation_loss.detach()
+            step_stats["saturation_weighted"] = (saturation_weight * saturation_loss).detach()
 
         if proxy_enabled and backend_weight > 0:
             proxy_stats = proxy_objective.compute(

@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
-#SBATCH --array=0-11
+#SBATCH --array=0-47
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=zhanh.he@research.uwa.edu.au
 
@@ -49,29 +49,19 @@ ln -s "$HDF5_SRC" "$HDF5_VIEW"
 ln -s "$PRETRAINED_ROOT_SRC" "$PRETRAINED_ROOT_VIEW"
 
 # frontend
-TRAIN_SET=${TRAIN_SET:-maestro}
-TEST_SET=${TEST_SET:-maestro}
-EVAL_SETS=${EVAL_SETS:-[train,maestro,smd]}
-MODEL_VARIANTS_STR=${MODEL_VARIANTS:-"hpt_note_editor"} # filmunet
+MODEL_VARIANTS_STR=${MODEL_VARIANTS:-"hpt_note_editor filmunet"} 
 FRONTEND_PRETRAIN_MODES_STR=${FRONTEND_PRETRAIN_MODES:-"scratch route2_piano_auto"}
 FRONTEND_PRETRAINED=${FRONTEND_PRETRAINED:-}
 LOSS_TYPE=${LOSS_TYPE:-kim_bce_l1}
 
 # backend
-SAMPLERS_STR=${SAMPLERS:-"mixed"}
-SEGMENTS_STR=${SEGMENT_LIST:-"2 5"}
-PROXY_LOSSES_STR=${LOSS_TYPES:-"smooth_l1"}
-SUPERVISED_WEIGHT=${SUPERVISED_WEIGHT:-0.0}
-BACKEND_WEIGHT=${BACKEND_WEIGHT:-1.0}
-PRIOR_WEIGHT=${PRIOR_WEIGHT:-0.02}
-SATURATION_WEIGHT=${SATURATION_WEIGHT:-0.05}
-WEIGHT_RECIPES_STR=${WEIGHT_RECIPES:-"0.8,0.1,0.0,0.05 0.7,0.2,0.0,0.05 0.8,0.1,0.02,0.05"}
-BACKEND_WARMUP_ITERATIONS=${BACKEND_WARMUP_ITERATIONS:-5000}
-USE_ONSET_WINDOW_POOLING=${USE_ONSET_WINDOW_POOLING:-true}
-ONSET_WINDOW_LEFT=${ONSET_WINDOW_LEFT:-1}
-ONSET_WINDOW_RIGHT=${ONSET_WINDOW_RIGHT:-2}
-ONSET_WINDOW_REDUCTION=${ONSET_WINDOW_REDUCTION:-max}
-SFPROXY_FEATURE_WEIGHTS=${SFPROXY_FEATURE_WEIGHTS:-[1.0,0.25]}
+SAMPLERS=("mixed") # "coverage"  "realism"
+SEGMENTS=("2" "5")
+PROXY_LOSSES=("smooth_l1" "l1" "mse") #  "l1" "mse"
+SUP_BACKEND_PAIRS_STR=${SUP_BACKEND_PAIRS:-"0.0,1.0 0.5,0.5"}
+PRIOR_WEIGHTS_STR=${PRIOR_WEIGHTS:-"0.0 0.01"}
+SFPROXY_CKPT_KIND=${SFPROXY_CKPT_KIND:-final}
+SFPROXY_FINAL_EPOCH=${SFPROXY_FINAL_EPOCH:-199}
 
 # Evaluation
 ENABLE_AUDIO_METRICS=${ENABLE_AUDIO_METRICS:-0}
@@ -80,10 +70,8 @@ AUDIO_METRIC_MAX_SEGMENTS=${AUDIO_METRIC_MAX_SEGMENTS:-4}
 
 read -r -a MODEL_VARIANTS <<< "$MODEL_VARIANTS_STR"
 read -r -a FRONTEND_PRETRAIN_MODES <<< "$FRONTEND_PRETRAIN_MODES_STR"
-read -r -a SAMPLERS <<< "$SAMPLERS_STR"
-read -r -a SEGMENTS <<< "$SEGMENTS_STR"
-read -r -a PROXY_LOSSES <<< "$PROXY_LOSSES_STR"
-read -r -a WEIGHT_RECIPES <<< "$WEIGHT_RECIPES_STR"
+read -r -a SUP_BACKEND_PAIRS <<< "$SUP_BACKEND_PAIRS_STR"
+read -r -a PRIOR_WEIGHTS <<< "$PRIOR_WEIGHTS_STR"
 
 sampler_dir() {
   local sampler="$1"
@@ -101,30 +89,21 @@ resolve_sfproxy_ckpt() {
   local segment="$2"
   local run_dir
   local base_dir
-  local latest
+  local best_ckpt
 
   run_dir="$(sampler_dir "$sampler" "$segment")"
   base_dir="$SFPROXY_ROOT/proxy/checkpoints/salamander_piano/${run_dir}"
-  if [ ! -d "$base_dir" ]; then
-    echo "SFProxy checkpoint directory does not exist: $base_dir"
-    exit 1
-  fi
 
-  latest="$(find "$base_dir" -maxdepth 1 -type f -name '*last*.ckpt' | sort -V | tail -n 1)"
-  if [ -n "$latest" ]; then
-    printf '%s\n' "$latest"
+  if [ "$SFPROXY_CKPT_KIND" = "final" ]; then
+    printf '%s/%s_e%s.ckpt\n' "$base_dir" "$run_dir" "$SFPROXY_FINAL_EPOCH"
     return
   fi
 
-  latest="$(find "$base_dir" -maxdepth 1 -type f -name '*loss*.ckpt' | sort -V | tail -n 1)"
-  if [ -n "$latest" ]; then
-    printf '%s\n' "$latest"
-    return
-  fi
-
-  latest="$(find "$base_dir" -maxdepth 1 -type f -name '*.ckpt' | sort -V | tail -n 1)"
-  if [ -n "$latest" ]; then
-    printf '%s\n' "$latest"
+  best_ckpt="$(find "$base_dir" -maxdepth 1 -type f -name "${run_dir}_e*_loss*.ckpt" | sort -V | tail -n 1)"
+  if [ -n "$best_ckpt" ]; then
+    printf '%s\n' "$best_ckpt"
+  else
+    printf '%s/%s_e%s.ckpt\n' "$base_dir" "$run_dir" "$SFPROXY_FINAL_EPOCH"
   fi
 }
 
@@ -138,7 +117,6 @@ EXP_PROXY_CKPT=()
 EXP_SUPERVISED_WEIGHT=()
 EXP_BACKEND_WEIGHT=()
 EXP_PRIOR_WEIGHT=()
-EXP_SATURATION_WEIGHT=()
 
 for SAMPLER in "${SAMPLERS[@]}"; do
   for SEGMENT_SECONDS in "${SEGMENTS[@]}"; do
@@ -146,44 +124,24 @@ for SAMPLER in "${SAMPLERS[@]}"; do
     for PROXY_LOSS in "${PROXY_LOSSES[@]}"; do
       for MODEL_VARIANT in "${MODEL_VARIANTS[@]}"; do
         for FRONTEND_PRETRAIN_MODE in "${FRONTEND_PRETRAIN_MODES[@]}"; do
-          if [ -n "$WEIGHT_RECIPES_STR" ]; then
-            for WEIGHT_RECIPE in "${WEIGHT_RECIPES[@]}"; do
-              IFS=, read -r RECIPE_SUPERVISED_WEIGHT RECIPE_BACKEND_WEIGHT RECIPE_PRIOR_WEIGHT RECIPE_SATURATION_WEIGHT <<< "$WEIGHT_RECIPE"
-              RECIPE_PRIOR_WEIGHT="${RECIPE_PRIOR_WEIGHT:-0.0}"
-              RECIPE_SATURATION_WEIGHT="${RECIPE_SATURATION_WEIGHT:-0.0}"
-              sup_tag=${RECIPE_SUPERVISED_WEIGHT/./p}
-              backend_tag=${RECIPE_BACKEND_WEIGHT/./p}
-              prior_tag=${RECIPE_PRIOR_WEIGHT/./p}
-              sat_tag=${RECIPE_SATURATION_WEIGHT/./p}
-              EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_PRETRAIN_MODE}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}_sat${sat_tag}")
+          for SUP_BACKEND_PAIR in "${SUP_BACKEND_PAIRS[@]}"; do
+            IFS=, read -r SUPERVISED_WEIGHT BACKEND_WEIGHT <<< "$SUP_BACKEND_PAIR"
+            for PRIOR_WEIGHT in "${PRIOR_WEIGHTS[@]}"; do
+              sup_tag=${SUPERVISED_WEIGHT/./p}
+              backend_tag=${BACKEND_WEIGHT/./p}
+              prior_tag=${PRIOR_WEIGHT/./p}
+              EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_PRETRAIN_MODE}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}")
               EXP_MODEL_VARIANT+=("$MODEL_VARIANT")
               EXP_FRONTEND_PRETRAIN_MODE+=("$FRONTEND_PRETRAIN_MODE")
               EXP_SAMPLER+=("$SAMPLER")
               EXP_SEGMENT+=("$SEGMENT_SECONDS")
               EXP_PROXY_LOSS+=("$PROXY_LOSS")
               EXP_PROXY_CKPT+=("$PROXY_CKPT")
-              EXP_SUPERVISED_WEIGHT+=("$RECIPE_SUPERVISED_WEIGHT")
-              EXP_BACKEND_WEIGHT+=("$RECIPE_BACKEND_WEIGHT")
-              EXP_PRIOR_WEIGHT+=("$RECIPE_PRIOR_WEIGHT")
-              EXP_SATURATION_WEIGHT+=("$RECIPE_SATURATION_WEIGHT")
+              EXP_SUPERVISED_WEIGHT+=("$SUPERVISED_WEIGHT")
+              EXP_BACKEND_WEIGHT+=("$BACKEND_WEIGHT")
+              EXP_PRIOR_WEIGHT+=("$PRIOR_WEIGHT")
             done
-          else
-            sup_tag=${SUPERVISED_WEIGHT/./p}
-            backend_tag=${BACKEND_WEIGHT/./p}
-            prior_tag=${PRIOR_WEIGHT/./p}
-            sat_tag=${SATURATION_WEIGHT/./p}
-            EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_PRETRAIN_MODE}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}_sat${sat_tag}")
-            EXP_MODEL_VARIANT+=("$MODEL_VARIANT")
-            EXP_FRONTEND_PRETRAIN_MODE+=("$FRONTEND_PRETRAIN_MODE")
-            EXP_SAMPLER+=("$SAMPLER")
-            EXP_SEGMENT+=("$SEGMENT_SECONDS")
-            EXP_PROXY_LOSS+=("$PROXY_LOSS")
-            EXP_PROXY_CKPT+=("$PROXY_CKPT")
-            EXP_SUPERVISED_WEIGHT+=("$SUPERVISED_WEIGHT")
-            EXP_BACKEND_WEIGHT+=("$BACKEND_WEIGHT")
-            EXP_PRIOR_WEIGHT+=("$PRIOR_WEIGHT")
-            EXP_SATURATION_WEIGHT+=("$SATURATION_WEIGHT")
-          fi
+          done
         done
       done
     done
@@ -193,11 +151,6 @@ done
 TOTAL_JOBS=${#EXP_NAME[@]}
 
 IDX=$SLURM_ARRAY_TASK_ID
-if [ "$IDX" -ge "$TOTAL_JOBS" ]; then
-  echo "SLURM array index $IDX exceeds configured job count $TOTAL_JOBS"
-  exit 1
-fi
-
 EXP_TAG=${EXP_NAME[$IDX]}
 MODEL_VARIANT=${EXP_MODEL_VARIANT[$IDX]}
 FRONTEND_PRETRAIN_MODE=${EXP_FRONTEND_PRETRAIN_MODE[$IDX]}
@@ -208,7 +161,6 @@ PROXY_CKPT=${EXP_PROXY_CKPT[$IDX]}
 SUPERVISED_WEIGHT=${EXP_SUPERVISED_WEIGHT[$IDX]}
 BACKEND_WEIGHT=${EXP_BACKEND_WEIGHT[$IDX]}
 PRIOR_WEIGHT=${EXP_PRIOR_WEIGHT[$IDX]}
-SATURATION_WEIGHT=${EXP_SATURATION_WEIGHT[$IDX]}
 
 MODEL_TYPE="filmunet"
 RUN_SCORE_METHOD="direct"
@@ -220,24 +172,11 @@ if [ "$MODEL_VARIANT" = "hpt_note_editor" ]; then
 fi
 
 FRONTEND_PRETRAINED_ARG=""
-if [ "$FRONTEND_PRETRAIN_MODE" = "route2_piano_specific" ]; then
-  if [ -z "$FRONTEND_PRETRAINED" ]; then
-    echo "FRONTEND_PRETRAINED must be set when FRONTEND_PRETRAIN_MODE=route2_piano_specific"
-    exit 1
-  fi
+if [ "$FRONTEND_PRETRAIN_MODE" = "route2_piano_specific" ] && [ -n "$FRONTEND_PRETRAINED" ]; then
   case "$FRONTEND_PRETRAINED" in
     /*|pretrained_checkpoints/*) FRONTEND_PRETRAINED_ARG="$FRONTEND_PRETRAINED" ;;
     *) FRONTEND_PRETRAINED_ARG="$PRETRAINED_ROOT_VIEW/$FRONTEND_PRETRAINED" ;;
   esac
-fi
-
-if [ ! -f "$PROXY_CKPT" ]; then
-  echo "Resolved DiffProxy checkpoint does not exist: $PROXY_CKPT"
-  exit 1
-fi
-if [ -n "$FRONTEND_PRETRAINED_ARG" ] && [ ! -f "$FRONTEND_PRETRAINED_ARG" ]; then
-  echo "Resolved frontend checkpoint does not exist: $FRONTEND_PRETRAINED_ARG"
-  exit 1
 fi
 
 echo "Experiment       : $EXP_TAG"
@@ -249,14 +188,10 @@ echo "Velocity loss    : $LOSS_TYPE"
 echo "Supervised weight: $SUPERVISED_WEIGHT"
 echo "Backend weight   : $BACKEND_WEIGHT"
 echo "Prior weight     : $PRIOR_WEIGHT"
-echo "Saturation weight: $SATURATION_WEIGHT"
 echo "Sampler          : $SAMPLER"
 echo "Backend seg (s)  : $SEGMENT_SECONDS"
 echo "Backend loss     : $PROXY_LOSS"
 echo "DiffProxy ckpt   : $PROXY_CKPT"
-echo "Warmup iters     : $BACKEND_WARMUP_ITERATIONS"
-echo "Onset pooling    : $USE_ONSET_WINDOW_POOLING (${ONSET_WINDOW_LEFT},${ONSET_WINDOW_RIGHT},${ONSET_WINDOW_REDUCTION})"
-echo "Feature weights  : $SFPROXY_FEATURE_WEIGHTS"
 
 EXTRA_ARGS=()
 if [ "$ENABLE_AUDIO_METRICS" = "1" ] || [ "$ENABLE_AUDIO_METRICS" = "true" ]; then
@@ -279,9 +214,9 @@ fi
 
 python pytorch/train_proxy.py \
   exp.workspace="$WORKSPACE_DIR" \
-  dataset.train_set="$TRAIN_SET" \
-  dataset.test_set="$TEST_SET" \
-  "dataset.eval_sets=$EVAL_SETS" \
+  dataset.train_set=maestro \
+  dataset.test_set=maestro \
+  'dataset.eval_sets=[train,maestro,smd]' \
   model.type="$MODEL_TYPE" \
   model.input2="$MODEL_INPUT2" \
   model.input3=null \
@@ -290,22 +225,16 @@ python pytorch/train_proxy.py \
   loss.supervised_weight="$SUPERVISED_WEIGHT" \
   loss.backend_weight="$BACKEND_WEIGHT" \
   loss.velocity_prior_weight="$PRIOR_WEIGHT" \
-  loss.velocity_saturation_weight="$SATURATION_WEIGHT" \
   backend.enabled=true \
   backend.type=diffproxy \
   backend.project_root=../synth-proxy \
   backend.checkpoint="$PROXY_CKPT" \
   backend.backend_segment_seconds="$SEGMENT_SECONDS" \
-  backend.warmup_iterations="$BACKEND_WARMUP_ITERATIONS" \
+  backend.warmup_iterations=0 \
   backend.supervision.hop_size=221 \
   backend.diffproxy.instrument_name=salamander_piano \
   backend.diffproxy.loss_type="$PROXY_LOSS" \
   backend.diffproxy.use_gt_aligned_note_events=true \
-  backend.diffproxy.use_onset_window_pooling="$USE_ONSET_WINDOW_POOLING" \
-  backend.diffproxy.onset_window_left="$ONSET_WINDOW_LEFT" \
-  backend.diffproxy.onset_window_right="$ONSET_WINDOW_RIGHT" \
-  backend.diffproxy.onset_window_reduction="$ONSET_WINDOW_REDUCTION" \
-  "backend.diffproxy.feature_weights=$SFPROXY_FEATURE_WEIGHTS" \
   backend.diffproxy.feature.hop=221 \
   wandb.comment="$EXP_TAG" \
   "${EXTRA_ARGS[@]}"

@@ -58,7 +58,12 @@ class SFProxyObjective:
         self.feature_name = str(getattr(cfg.backend.diffproxy, 'feature_name', 'note_dynamics') or 'note_dynamics').strip()
         self.loss_type = str(getattr(cfg.backend.diffproxy, 'loss_type', 'smooth_l1') or 'smooth_l1').strip().lower()
         self.loss_beta = float(getattr(cfg.backend.diffproxy, 'loss_beta', 1.0) or 1.0)
+        self.feature_weights = self._resolve_feature_weights(getattr(cfg.backend.diffproxy, 'feature_weights', None))
         self.use_gt_aligned_note_events = bool(getattr(cfg.backend.diffproxy, 'use_gt_aligned_note_events', True))
+        self.use_onset_window_pooling = bool(getattr(cfg.backend.diffproxy, 'use_onset_window_pooling', False))
+        self.onset_window_left = int(getattr(cfg.backend.diffproxy, 'onset_window_left', 1) or 0)
+        self.onset_window_right = int(getattr(cfg.backend.diffproxy, 'onset_window_right', 2) or 0)
+        self.onset_window_reduction = str(getattr(cfg.backend.diffproxy, 'onset_window_reduction', 'max') or 'max').strip().lower()
 
         note_builder_cfg = getattr(cfg.backend.diffproxy, 'note_builder', None)
         self.onset_threshold = float(getattr(note_builder_cfg, 'onset_threshold', 0.5) or 0.5)
@@ -95,6 +100,20 @@ class SFProxyObjective:
         self.model.eval()
         for param in self.model.parameters():
             param.requires_grad = False
+
+    @staticmethod
+    def _resolve_feature_weights(value) -> Optional[torch.Tensor]:
+        if value is None:
+            return None
+        try:
+            from omegaconf import OmegaConf
+            if OmegaConf.is_config(value):
+                value = OmegaConf.to_container(value, resolve=True)
+        except Exception:
+            pass
+        if isinstance(value, (list, tuple)) and len(value) > 0:
+            return torch.tensor([float(v) for v in value], dtype=torch.float32)
+        return None
 
     @staticmethod
     def _to_plain_dict(value) -> Dict:
@@ -265,6 +284,29 @@ class SFProxyObjective:
         mask = torch.ones((pitch.numel(),), device=self.device, dtype=torch.bool)
         return pitch, cont_sec, cont_norm, mask, int(pitch.numel())
 
+    def _read_note_velocity(self, vel_pred: torch.Tensor, onset_sec: float, pitch_idx: int) -> torch.Tensor:
+        if vel_pred.ndim < 2 or vel_pred.shape[0] <= 0 or pitch_idx < 0 or pitch_idx >= int(vel_pred.shape[1]):
+            return vel_pred.new_zeros(())
+
+        fps = float(self.src_frames_per_second)
+        total_frames = int(vel_pred.shape[0])
+        onset_frame = int(round(float(onset_sec) * fps))
+        onset_frame = max(0, min(onset_frame, total_frames - 1))
+        vel_clamped = vel_pred.clamp(0.0, 1.0)
+
+        if not self.use_onset_window_pooling:
+            return vel_clamped[onset_frame, pitch_idx]
+
+        start = max(0, onset_frame - max(0, self.onset_window_left))
+        end = min(total_frames, onset_frame + max(0, self.onset_window_right) + 1)
+        if end <= start:
+            return vel_clamped[onset_frame, pitch_idx]
+
+        values = vel_clamped[start:end, pitch_idx]
+        if self.onset_window_reduction == 'mean':
+            return values.mean()
+        return values.max()
+
     def _extract_note_list_from_events(
         self,
         note_events: List[dict],
@@ -281,9 +323,7 @@ class SFProxyObjective:
         """
         fps = float(self.src_frames_per_second)
         min_dur = float(self.min_duration_frames) / max(fps, 1e-6)
-        vel_clamped = vel_pred.clamp(0.0, 1.0)
-        total_frames = int(vel_clamped.shape[0])
-        total_pitches = int(vel_clamped.shape[1]) if vel_clamped.ndim >= 2 else 0
+        total_pitches = int(vel_pred.shape[1]) if vel_pred.ndim >= 2 else 0
 
         midi_notes: List[int] = []
         onset_secs: List[float] = []
@@ -301,12 +341,7 @@ class SFProxyObjective:
             offset_sec = float(event.get('offset_time', onset_sec + min_dur))
             dur_sec = max(min_dur, float(offset_sec - onset_sec))
 
-            if total_frames > 0:
-                onset_frame = int(round(onset_sec * fps))
-                onset_frame = max(0, min(onset_frame, total_frames - 1))
-                velocity_01 = vel_clamped[onset_frame, pitch_idx]
-            else:
-                velocity_01 = vel_pred.new_zeros(())
+            velocity_01 = self._read_note_velocity(vel_pred, onset_sec=onset_sec, pitch_idx=pitch_idx)
             midi_notes.append(midi_note)
             onset_secs.append(onset_sec)
             dur_secs.append(dur_sec)
@@ -336,7 +371,6 @@ class SFProxyObjective:
         fps = float(self.src_frames_per_second)
         onset_np = (onset_roll.detach().cpu() > self.onset_threshold)
         frame_np = (frame_roll.detach().cpu() > self.frame_threshold)
-        vel_clamped = vel_pred.clamp(0.0, 1.0)
 
         midi_notes: List[int] = []
         onset_secs: List[float] = []
@@ -364,10 +398,7 @@ class SFProxyObjective:
 
                 onset_sec = float(start_frame) / fps
                 dur_sec = max(float(self.min_duration_frames) / fps, float(end_frame - start_frame) / fps)
-                if start_frame < vel_clamped.shape[0]:
-                    velocity_01 = vel_clamped[start_frame, pitch_idx]
-                else:
-                    velocity_01 = vel_pred.new_zeros(())
+                velocity_01 = self._read_note_velocity(vel_pred, onset_sec=onset_sec, pitch_idx=pitch_idx)
                 midi_notes.append(self.begin_note + pitch_idx)
                 onset_secs.append(onset_sec)
                 dur_secs.append(dur_sec)
@@ -466,22 +497,36 @@ class SFProxyObjective:
             zero = pred.new_zeros(())
             return zero, zero
 
-        pred_valid = pred.masked_select(valid)
-        target_valid = target.masked_select(valid)
         loss_name = self.loss_type.lower()
-        loss = {
+        pointwise = {
             'smooth_l1': lambda: F.smooth_l1_loss(
-                pred_valid,
-                target_valid,
-                reduction='mean',
+                pred,
+                target,
+                reduction='none',
                 beta=self.loss_beta,
             ),
-            'l1': lambda: torch.abs(pred_valid - target_valid).mean(),
-            'mse': lambda: (pred_valid - target_valid).pow(2).mean(),
-            'l2': lambda: (pred_valid - target_valid).pow(2).mean(),
+            'l1': lambda: torch.abs(pred - target),
+            'mse': lambda: (pred - target).pow(2),
+            'l2': lambda: (pred - target).pow(2),
         }[loss_name]()
 
-        mae = torch.abs(pred_valid - target_valid).mean()
+        if self.feature_weights is not None and self.feature_weights.numel() > 0:
+            weights = self.feature_weights.to(device=pred.device, dtype=pred.dtype)
+            if weights.numel() != pred.shape[-1]:
+                if weights.numel() < pred.shape[-1]:
+                    pad = torch.ones((pred.shape[-1] - weights.numel(),), device=pred.device, dtype=pred.dtype)
+                    weights = torch.cat([weights, pad], dim=0)
+                else:
+                    weights = weights[: pred.shape[-1]]
+            weight_view = weights.view(*([1] * (pred.ndim - 1)), pred.shape[-1])
+        else:
+            weight_view = torch.ones((1,) * (pred.ndim - 1) + (pred.shape[-1],), device=pred.device, dtype=pred.dtype)
+
+        weighted_valid = valid.to(pred.dtype) * weight_view
+        denom = weighted_valid.masked_select(valid).sum().clamp_min(1e-8)
+        loss = (pointwise * weight_view).masked_select(valid).sum() / denom
+
+        mae = torch.abs(pred - target).masked_select(valid).mean()
         return loss, mae
 
     def compute(self, batch_data_dict, audio, vel_pred, iteration: int) -> Dict[str, torch.Tensor]:

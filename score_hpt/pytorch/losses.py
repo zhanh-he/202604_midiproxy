@@ -158,6 +158,29 @@ def velocity_prior_loss(cfg, output_dict, target_dict=None):
     return mean_term + var_term
 
 
+def velocity_saturation_loss(cfg, output_dict, target_dict=None):
+    """Penalize saturated velocity predictions near the upper boundary."""
+    weight = float(getattr(cfg.loss, "velocity_saturation_weight", 0.0) or 0.0)
+    pred = _get_velocity_pred(output_dict)
+    if weight <= 0:
+        return pred.new_tensor(0.0)
+
+    use_onsets_only = bool(getattr(cfg.loss, "velocity_saturation_onset_only", True))
+    if use_onsets_only and target_dict is not None and "onset_roll" in target_dict:
+        mask = target_dict["onset_roll"]
+        pred, mask = _align_time_dim(pred, mask)
+        values = pred[mask > 0]
+    else:
+        values = pred.reshape(-1)
+
+    if values.numel() == 0:
+        return pred.new_tensor(0.0)
+
+    threshold = float(getattr(cfg.loss, "velocity_saturation_threshold", 0.95))
+    excess = F.relu(values - pred.new_tensor(threshold))
+    return excess.pow(2).mean()
+
+
 # -----------------------------------------------------------------------------
 # Audio supervision losses for differentiable proxy training
 # -----------------------------------------------------------------------------

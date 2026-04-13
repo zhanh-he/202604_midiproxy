@@ -123,6 +123,9 @@ loss:
   velocity_prior_mean: 0.5
   velocity_prior_min_var: 0.01
   velocity_prior_onset_only: true
+  velocity_saturation_weight: 0.0
+  velocity_saturation_threshold: 0.95
+  velocity_saturation_onset_only: true
 
 train_eval:
   audio_metrics:
@@ -280,7 +283,12 @@ backend:
     sample_rate: 0            # 0 -> use backend.supervision.sample_rate to align DiffProxy with Score-HPT
     loss_type: "smooth_l1"   # smooth_l1 | l1 | mse
     loss_beta: 1.0
+    feature_weights: [1.0, 1.0]   # [harmonic energy, onset flux] weighting inside Route IV proxy loss
     use_gt_aligned_note_events: true   # use GT aligned note list; velocity is read from the predicted roll at each GT onset frame
+    use_onset_window_pooling: false
+    onset_window_left: 1
+    onset_window_right: 2
+    onset_window_reduction: "max"   # max | mean
     note_builder:
       onset_threshold: 0.5
       frame_threshold: 0.5
