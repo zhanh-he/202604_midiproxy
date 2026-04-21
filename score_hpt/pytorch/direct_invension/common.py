@@ -61,6 +61,15 @@ def normalize_dataset_type(dataset_type: str) -> str:
     return str(dataset_type).strip().lower()
 
 
+def resolve_dataset_split(split_or_scope: str) -> str:
+    token = str(split_or_scope or "test").strip().lower()
+    if token == "full":
+        return "all"
+    if token == "valid":
+        return "validation"
+    return token or "test"
+
+
 def resolve_path(value: Any) -> Path:
     path = Path(str(value)).expanduser()
     if not path.is_absolute():

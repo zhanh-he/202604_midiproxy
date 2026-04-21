@@ -3,7 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-from direct_invension.common import dump_json, require_path, resolve_dataset_dir, resolve_path, slugify, validate_hop_contract
+from direct_invension.common import (
+    dump_json,
+    require_path,
+    resolve_dataset_dir,
+    resolve_dataset_split,
+    resolve_path,
+    slugify,
+    validate_hop_contract,
+)
 from direct_invension.eval_framework import (
     attach_reference_audio_from_folder,
     build_dataset_prediction_manifest,
@@ -51,6 +59,10 @@ def append_metric_block(lines: list[str], summary: Dict[str, Any], title: str, p
     lines.append(_fmt_row(values))
 
 
+def _compute_synth_gt_metrics(config_prefix: str) -> bool:
+    return not str(config_prefix).startswith(("route3.", "route4."))
+
+
 def format_evaluation_summary(
     *,
     dataset_type: str,
@@ -59,7 +71,6 @@ def format_evaluation_summary(
     out_dir: Path,
     manifest_path: Path,
     summary: Dict[str, Any],
-    per_file_results_dir: str,
     extra_lines: Optional[Sequence[str]] = None,
 ) -> str:
     lines = [
@@ -74,17 +85,18 @@ def format_evaluation_summary(
     ]
     if extra_lines:
         lines.extend(str(line) for line in extra_lines)
-    lines.append(f"velocity_mae (0-127): {fmt_metric(summary.get('velocity_mae'))}")
+    if bool(summary.get("velocity_mae_enabled", True)):
+        lines.append(f"velocity_mae (0-127): {fmt_metric(summary.get('velocity_mae'))}")
+    else:
+        lines.append("velocity_mae (0-127): disabled")
 
-    lines.append("")
-    append_metric_block(lines, summary, "synth_gt_vs_synth_pred_bssl", "synth_ref_bssl")
-    append_metric_block(lines, summary, "synth_gt_vs_synth_pred_bstl", "synth_ref_bstl")
+    if any(str(key).startswith("synth_ref_") for key in summary):
+        lines.append("")
+        append_metric_block(lines, summary, "synth_gt_vs_synth_pred_bssl", "synth_ref_bssl")
+        append_metric_block(lines, summary, "synth_gt_vs_synth_pred_bstl", "synth_ref_bstl")
     lines.append("")
     append_metric_block(lines, summary, "real_vs_synth_pred_bssl", "real_ref_bssl")
     append_metric_block(lines, summary, "real_vs_synth_pred_bstl", "real_ref_bstl")
-
-    lines.append("")
-    lines.append(f"per_file_results_dir: {per_file_results_dir}")
     return "\n".join(lines)
 
 
@@ -96,6 +108,7 @@ def run_evaluation(
     config_prefix: str,
     route_name: str,
     run_json_name: str,
+    max_items: Optional[int] = None,
     extra_run_payload: Optional[Mapping[str, Any]] = None,
     extra_summary_lines: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
@@ -105,6 +118,10 @@ def run_evaluation(
     manifest_mode = str(eval_cfg.manifest_mode).lower()
     audio_reference_mode = str(eval_cfg.audio_reference_mode).lower()
     label = str(eval_cfg.label)
+    requested_split = str(eval_cfg.split)
+    resolved_split = resolve_dataset_split(requested_split)
+    compute_velocity_mae = bool(getattr(eval_cfg, "compute_velocity_mae", True))
+    compute_synth_gt_metrics = _compute_synth_gt_metrics(config_prefix)
 
     validate_hop_contract(
         fps=float(eval_cfg.frames_per_second),
@@ -127,8 +144,9 @@ def run_evaluation(
             dataset_dir=dataset_dir,
             pred_midi_dir=pred_midi_dir,
             label=label,
-            split=str(eval_cfg.split),
+            split=resolved_split,
             maps_pianos=str(eval_cfg.maps_pianos),
+            max_items=max_items,
         )
         if audio_reference_mode == "folder":
             reference_audio_dir = require_path(
@@ -171,6 +189,7 @@ def run_evaluation(
             pred_midi_dir=pred_midi_dir,
             label=label,
             reference_audio_dir=reference_audio_dir,
+            max_items=max_items,
         )
     else:
         raise ValueError(f"{config_prefix}.manifest_mode must be dataset or folder")
@@ -193,6 +212,8 @@ def run_evaluation(
         device="cuda",
         backend=str(eval_cfg.backend),
         skip_existing_render=not bool(eval_cfg.overwrite_render),
+        compute_velocity_mae=compute_velocity_mae,
+        compute_synth_gt_metrics=compute_synth_gt_metrics,
     )
 
     run_payload: Dict[str, Any] = {
@@ -200,6 +221,10 @@ def run_evaluation(
         "manifest_path": str(manifest_path),
         "prediction_dir": str(pred_midi_dir),
         "instrument_path": str(instrument_path),
+        "requested_split": requested_split,
+        "resolved_split": resolved_split,
+        "compute_velocity_mae": compute_velocity_mae,
+        "max_items": int(max_items) if max_items is not None else None,
         "summary": payload["summary"],
         "per_file_results_dir": payload["per_file_results_dir"],
     }
@@ -214,7 +239,6 @@ def run_evaluation(
         out_dir=out_dir,
         manifest_path=manifest_path,
         summary=payload["summary"],
-        per_file_results_dir=payload["per_file_results_dir"],
         extra_lines=extra_summary_lines,
     )
     return {

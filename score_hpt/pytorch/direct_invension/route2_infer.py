@@ -121,6 +121,10 @@ def predict_route2_dataset(
     maps_pianos: str = "both",
     velocity_method: str = "onset_only",
     skip_existing: bool = True,
+    max_items: int | None = None,
+    label: str = "route2",
+    manifest_name: str | None = None,
+    file_summary_name: str | None = None,
 ) -> Dict[str, object]:
     scan_midis, load_maestro_audio_map, resolve_real_audio = _build_dataset_scan_helpers()
 
@@ -131,6 +135,8 @@ def predict_route2_dataset(
 
     transcriber = VeloTranscription(checkpoint_path=str(checkpoint_path), cfg=cfg)
     midi_files = scan_midis(dataset_type, dataset_dir, split=split, maps_pianos=maps_pianos)
+    if max_items is not None:
+        midi_files = midi_files[: max(0, int(max_items))]
     maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=split)
 
     items: List[Dict[str, object]] = []
@@ -172,7 +178,7 @@ def predict_route2_dataset(
         items.append(
             {
                 "key": key,
-                "label": "route2",
+                "label": str(label),
                 "gt_midi": str(midi_path),
                 "pred_midi": str(pred_midi_path),
                 "real_audio": str(real_audio),
@@ -182,7 +188,7 @@ def predict_route2_dataset(
 
     manifest = {
         "format_version": 1,
-        "label": "route2",
+        "label": str(label),
         "dataset_type": str(dataset_type),
         "dataset_dir": str(dataset_dir),
         "split": split,
@@ -191,10 +197,13 @@ def predict_route2_dataset(
         "velocity_method": str(velocity_method),
         "items": items,
     }
-    manifest_path = dump_json(out_dir / "route2_manifest.json", manifest)
-    file_summary_path = dump_json(out_dir / "route2_predictions.json", {"files": file_summaries})
+    manifest_file = manifest_name or f"{label}_manifest.json"
+    summary_file = file_summary_name or f"{label}_predictions.json"
+    manifest_path = dump_json(out_dir / manifest_file, manifest)
+    file_summary_path = dump_json(out_dir / summary_file, {"files": file_summaries})
 
     return {
+        "label": str(label),
         "dataset_type": dataset_type,
         "dataset_dir": str(dataset_dir),
         "num_items": len(items),

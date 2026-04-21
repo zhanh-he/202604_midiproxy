@@ -438,7 +438,7 @@ def evaluate_bssl_pair(
                 "bssl_mean_absolute_error": float(bssl_flat_metrics_raw["mean_absolute_error"]),
                 "bssl_spearman_correlation": float(bssl_flat_metrics_raw["spearman_correlation"]),
                 "bssl_cosine_sim": float(bssl_flat_metrics_raw["cosine_sim"]),
-                "ntot_cosine_sim": float(ntot_metrics_norm["cosine_sim"]),
+                "ntot_cosine_sim": float(ntot_metrics_raw["cosine_sim"]),
                 "ntot_mean_absolute_error": float(ntot_metrics_raw["mean_absolute_error"]),
                 "ntot_spearman_correlation": float(ntot_metrics_raw["spearman_correlation"]),
                 "ntot_cosine_sim_raw": float(ntot_metrics_raw["cosine_sim"]),

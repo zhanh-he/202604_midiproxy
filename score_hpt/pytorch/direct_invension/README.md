@@ -15,10 +15,15 @@ This folder keeps the Route I / II implementations, the flat-velocity baseline, 
 - `route2_infer.py`
   - Route II model inference
   - aligned score-note velocity backfill to prediction MIDI
+- `route4_infer.py`
+  - Route IV checkpoint inference
+  - same GT-note / predicted-velocity MIDI export as Route II
 - `route1_evaluate.py`
   - Route I evaluation entrypoint
 - `route2_evaluate.py`
   - Route II evaluation entrypoint
+- `route4_evaluate.py`
+  - Route IV evaluation entrypoint
 - `flat_evaluate.py`
   - flat-velocity evaluation entrypoint
 - `eval_runner.py`
@@ -39,6 +44,8 @@ python pytorch/direct_invension/route1_infer.py dataset.test_set=smd
 python pytorch/direct_invension/route1_evaluate.py dataset.test_set=smd route1.eval.instrument_path=/path/to/soundfont.sf2
 python pytorch/direct_invension/route2_infer.py dataset.test_set=smd model.frontend_pretrained=/path/to/ckpt.pth
 python pytorch/direct_invension/route2_evaluate.py dataset.test_set=smd route2.eval.instrument_path=/path/to/soundfont.sf2
+python pytorch/direct_invension/route4_infer.py dataset.test_set=smd route4.infer.checkpoint_path=/path/to/ckpt.pth route4.infer.split=full
+python pytorch/direct_invension/route4_evaluate.py dataset.test_set=smd route4.eval.instrument_path=/path/to/soundfont.sf2 route4.eval.split=full route4.eval.compute_velocity_mae=true
 python pytorch/direct_invension/flat_infer.py dataset.test_set=smd flat.infer.flat_velocity=64
 python pytorch/direct_invension/flat_evaluate.py dataset.test_set=smd flat.eval.instrument_path=/path/to/soundfont.sf2
 ```
@@ -67,6 +74,11 @@ Important Route II defaults:
 
 - `route2.infer.*`
 - `route2.eval.*`
+
+Important Route IV defaults:
+
+- `route4.infer.*`
+- `route4.eval.*`
 
 ## Folder-mode evaluation
 

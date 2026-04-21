@@ -285,7 +285,7 @@ def _extract_pair_metrics(eval_payload: Mapping[str, Any]) -> Dict[str, float]:
     return out
 
 
-_RE_SUFFIX = re.compile(r"(?:_pred|_gt|_direct|_route\d+|\.pred|\.gt|\.direct|\.flat\d+)$", re.IGNORECASE)
+_RE_SUFFIX = re.compile(r"(?:_pred|_gt|_direct|_route\d+|\.pred|\.gt|\.direct|\.route\d+|\.flat\d+)$", re.IGNORECASE)
 _AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac")
 _MIDI_EXTENSIONS = (".mid", ".midi")
 
@@ -350,6 +350,7 @@ def build_dataset_prediction_manifest(
     label: str,
     split: str = "test",
     maps_pianos: str = "both",
+    max_items: Optional[int] = None,
     manifest_out: Optional[str | Path] = None,
 ) -> Dict[str, Any]:
     """Create a manifest by matching GT MIDIs in a dataset with predicted MIDIs in a folder."""
@@ -358,6 +359,8 @@ def build_dataset_prediction_manifest(
     dataset_dir = Path(dataset_dir).resolve()
     pred_midi_dir = Path(pred_midi_dir).resolve()
     midi_files = scan_midis(dataset_type, dataset_dir, split=split, maps_pianos=maps_pianos)
+    if max_items is not None:
+        midi_files = midi_files[: max(0, int(max_items))]
     maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=split)
     pred_index = _index_prediction_midis(pred_midi_dir)
 
@@ -412,6 +415,7 @@ def build_folder_prediction_manifest(
     pred_midi_dir: str | Path,
     label: str,
     reference_audio_dir: Optional[str | Path] = None,
+    max_items: Optional[int] = None,
     manifest_out: Optional[str | Path] = None,
 ) -> Dict[str, Any]:
     """Create a manifest by matching predicted MIDIs against a GT MIDI folder."""
@@ -424,6 +428,8 @@ def build_folder_prediction_manifest(
         gt_midis.extend(sorted(gt_midi_dir.rglob(f"*{suffix}")))
     # Deduplicate in case both .mid and .midi globs overlap unexpectedly.
     gt_midis = sorted({p.resolve() for p in gt_midis})
+    if max_items is not None:
+        gt_midis = gt_midis[: max(0, int(max_items))]
 
     pred_index = _index_prediction_midis(pred_midi_dir)
     audio_index = (
@@ -570,6 +576,9 @@ def evaluate_prediction_item(
     device: Optional[str] = None,
     backend: str = "auto",
     skip_existing_render: bool = True,
+    compute_velocity_mae: bool = True,
+    compute_synth_gt_metrics: bool = True,
+    score_progress=None,
 ) -> Dict[str, Any]:
     evaluate_bssl_pair = _import_bssl_eval()
 
@@ -583,17 +592,19 @@ def evaluate_prediction_item(
     pred_midi = Path(str(item["pred_midi"]))
     real_audio = Path(str(item["real_audio"])) if item.get("real_audio") else None
 
-    gt_syn_wav = item_render_dir / f"{safe_key}.gt.wav"
     pred_syn_wav = item_render_dir / f"{safe_key}.pred.wav"
 
-    gt_render = render_midi_to_audio(
-        midi_path=gt_midi,
-        instrument_path=instrument_path,
-        wav_path=gt_syn_wav,
-        sample_rate=int(render_sr),
-        backend=backend,
-        skip_existing=skip_existing_render,
-    )
+    gt_syn_wav = item_render_dir / f"{safe_key}.gt.wav"
+    gt_render = None
+    if compute_synth_gt_metrics:
+        gt_render = render_midi_to_audio(
+            midi_path=gt_midi,
+            instrument_path=instrument_path,
+            wav_path=gt_syn_wav,
+            sample_rate=int(render_sr),
+            backend=backend,
+            skip_existing=skip_existing_render,
+        )
     pred_render = render_midi_to_audio(
         midi_path=pred_midi,
         instrument_path=instrument_path,
@@ -603,19 +614,23 @@ def evaluate_prediction_item(
         skip_existing=skip_existing_render,
     )
 
-    velocity_alignment = align_note_velocities(gt_midi, pred_midi)
+    velocity_alignment = align_note_velocities(gt_midi, pred_midi) if compute_velocity_mae else None
 
-    synth_ref = evaluate_bssl_pair(
-        pred_wav=pred_syn_wav,
-        gt_wav=gt_syn_wav,
-        sample_rate=int(eval_sr),
-        frames_per_second=float(frames_per_second),
-        fft_size=int(fft_size),
-        bssl_mode=bssl_mode,
-        num_samples=int(num_samples),
-        normalization=normalization,
-        device=device,
-    )
+    synth_ref = None
+    if compute_synth_gt_metrics:
+        synth_ref = evaluate_bssl_pair(
+            pred_wav=pred_syn_wav,
+            gt_wav=gt_syn_wav,
+            sample_rate=int(eval_sr),
+            frames_per_second=float(frames_per_second),
+            fft_size=int(fft_size),
+            bssl_mode=bssl_mode,
+            num_samples=int(num_samples),
+            normalization=normalization,
+            device=device,
+        )
+        if score_progress is not None:
+            score_progress.update(1)
     real_ref = None
     if real_audio is not None:
         real_ref = evaluate_bssl_pair(
@@ -629,14 +644,19 @@ def evaluate_prediction_item(
             normalization=normalization,
             device=device,
         )
+        if score_progress is not None:
+            score_progress.update(1)
 
-    summary: Dict[str, Any] = {
-        "key": key,
-        "velocity_mae": float(velocity_alignment.mae),
-        "num_gt_notes": int(velocity_alignment.num_gt_notes),
-        "num_pred_notes": int(velocity_alignment.num_pred_notes),
-        "num_matched_notes": int(velocity_alignment.num_matched_notes),
-    }
+    summary: Dict[str, Any] = {"key": key}
+    if velocity_alignment is not None:
+        summary.update(
+            {
+                "velocity_mae": float(velocity_alignment.mae),
+                "num_gt_notes": int(velocity_alignment.num_gt_notes),
+                "num_pred_notes": int(velocity_alignment.num_pred_notes),
+                "num_matched_notes": int(velocity_alignment.num_matched_notes),
+            }
+        )
     for prefix, payload in (("synth_ref", synth_ref), ("real_ref", real_ref)):
         if payload is None:
             continue
@@ -655,7 +675,7 @@ def evaluate_prediction_item(
             "gt": gt_render,
             "pred": pred_render,
         },
-        "velocity": velocity_alignment.__dict__,
+        "velocity": velocity_alignment.__dict__ if velocity_alignment is not None else None,
         "synth_ref": synth_ref,
         "real_ref": real_ref,
         "summary": summary,
@@ -678,6 +698,8 @@ def evaluate_prediction_manifest(
     backend: str = "auto",
     skip_existing_render: bool = True,
     fail_fast: bool = False,
+    compute_velocity_mae: bool = True,
+    compute_synth_gt_metrics: bool = True,
 ) -> Dict[str, Any]:
     payload = _load_manifest(manifest)
     items = payload.get("items", [])
@@ -686,60 +708,76 @@ def evaluate_prediction_manifest(
     out_dir.mkdir(parents=True, exist_ok=True)
     per_file_dir = out_dir / "per_file_results"
     per_file_dir.mkdir(parents=True, exist_ok=True)
+    score_steps = sum((1 if compute_synth_gt_metrics else 0) + (1 if item.get("real_audio") else 0) for item in items)
+    score_progress = (
+        tqdm(
+            total=score_steps,
+            desc="Score",
+            unit="pair",
+            dynamic_ncols=True,
+        )
+        if score_steps > 0
+        else None
+    )
 
     results: List[Dict[str, Any]] = []
     ok_count = 0
     fail_count = 0
-    for item in tqdm(
-        items,
-        desc=f"Evaluate [{label}]",
-        unit="file",
-        dynamic_ncols=True,
-    ):
-        try:
-            res = evaluate_prediction_item(
-                item,
-                instrument_path=instrument_path,
-                out_dir=out_dir,
-                render_sr=int(render_sr),
-                eval_sr=int(eval_sr),
-                frames_per_second=float(frames_per_second),
-                fft_size=int(fft_size),
-                bssl_mode=bssl_mode,
-                num_samples=int(num_samples),
-                normalization=normalization,
-                device=device,
-                backend=backend,
-                skip_existing_render=skip_existing_render,
-            )
-            ok_count += 1
-        except Exception as exc:  # noqa: BLE001
-            res = {
-                "status": "error",
-                "key": item.get("key"),
-                "label": item.get("label"),
-                "error": repr(exc),
-                "gt_midi": item.get("gt_midi"),
-                "pred_midi": item.get("pred_midi"),
-            }
-            fail_count += 1
-            if fail_fast:
-                raise
-        results.append(res)
-        key = slugify(str(item.get("key") or len(results)))
-        dump_json(per_file_dir / f"{key}.json", res)
+    try:
+        for item in tqdm(
+            items,
+            desc="Evaluate",
+            unit="file",
+            dynamic_ncols=True,
+        ):
+            item_score_steps = (1 if compute_synth_gt_metrics else 0) + (1 if item.get("real_audio") else 0)
+            item_score_before = int(score_progress.n) if score_progress is not None else 0
+            try:
+                res = evaluate_prediction_item(
+                    item,
+                    instrument_path=instrument_path,
+                    out_dir=out_dir,
+                    render_sr=int(render_sr),
+                    eval_sr=int(eval_sr),
+                    frames_per_second=float(frames_per_second),
+                    fft_size=int(fft_size),
+                    bssl_mode=bssl_mode,
+                    num_samples=int(num_samples),
+                    normalization=normalization,
+                    device=device,
+                    backend=backend,
+                    skip_existing_render=skip_existing_render,
+                    compute_velocity_mae=compute_velocity_mae,
+                    compute_synth_gt_metrics=compute_synth_gt_metrics,
+                    score_progress=score_progress,
+                )
+                ok_count += 1
+            except Exception as exc:  # noqa: BLE001
+                res = {
+                    "status": "error",
+                    "key": item.get("key"),
+                    "label": item.get("label"),
+                    "error": repr(exc),
+                    "gt_midi": item.get("gt_midi"),
+                    "pred_midi": item.get("pred_midi"),
+                }
+                if score_progress is not None:
+                    completed = int(score_progress.n) - item_score_before
+                    remaining = max(0, int(item_score_steps) - int(completed))
+                    if remaining:
+                        score_progress.update(remaining)
+                fail_count += 1
+                if fail_fast:
+                    raise
+            results.append(res)
+            key = slugify(str(item.get("key") or len(results)))
+            dump_json(per_file_dir / f"{key}.json", res)
+    finally:
+        if score_progress is not None:
+            score_progress.close()
 
     ok_results = [r for r in results if r.get("status") == "ok"]
     summary_fields = [
-        "velocity_mae",
-        "synth_ref_bssl_pearson_correlation",
-        "synth_ref_bssl_mean_absolute_error",
-        "synth_ref_bssl_cosine_similarity",
-        "synth_ref_bssl_spearman_correlation",
-        "synth_ref_bstl_pearson_correlation",
-        "synth_ref_bstl_mean_absolute_error",
-        "synth_ref_bstl_cosine_similarity",
-        "synth_ref_bstl_spearman_correlation",
         "real_ref_bssl_pearson_correlation",
         "real_ref_bssl_mean_absolute_error",
         "real_ref_bssl_cosine_similarity",
@@ -749,12 +787,27 @@ def evaluate_prediction_manifest(
         "real_ref_bstl_cosine_similarity",
         "real_ref_bstl_spearman_correlation",
     ]
+    if compute_synth_gt_metrics:
+        summary_fields = [
+            "synth_ref_bssl_pearson_correlation",
+            "synth_ref_bssl_mean_absolute_error",
+            "synth_ref_bssl_cosine_similarity",
+            "synth_ref_bssl_spearman_correlation",
+            "synth_ref_bstl_pearson_correlation",
+            "synth_ref_bstl_mean_absolute_error",
+            "synth_ref_bstl_cosine_similarity",
+            "synth_ref_bstl_spearman_correlation",
+            *summary_fields,
+        ]
+    if compute_velocity_mae:
+        summary_fields = ["velocity_mae", *summary_fields]
     summary_values = _mean_metrics([r.get("summary", {}) for r in ok_results], summary_fields)
     summary = {
         "label": label,
         "num_items": int(len(items)),
         "num_ok": int(ok_count),
         "num_fail": int(fail_count),
+        "velocity_mae_enabled": bool(compute_velocity_mae),
         **summary_values,
     }
     final_payload = {

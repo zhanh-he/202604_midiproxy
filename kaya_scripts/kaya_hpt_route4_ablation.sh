@@ -146,6 +146,7 @@ for SAMPLER in "${SAMPLERS[@]}"; do
     for PROXY_LOSS in "${PROXY_LOSSES[@]}"; do
       for MODEL_VARIANT in "${MODEL_VARIANTS[@]}"; do
         for FRONTEND_PRETRAIN_MODE in "${FRONTEND_PRETRAIN_MODES[@]}"; do
+          FRONTEND_NAME_TAG="frontend_${FRONTEND_PRETRAIN_MODE#route2_piano_}"
           if [ -n "$WEIGHT_RECIPES_STR" ]; then
             for WEIGHT_RECIPE in "${WEIGHT_RECIPES[@]}"; do
               IFS=, read -r RECIPE_SUPERVISED_WEIGHT RECIPE_BACKEND_WEIGHT RECIPE_PRIOR_WEIGHT RECIPE_SATURATION_WEIGHT <<< "$WEIGHT_RECIPE"
@@ -155,7 +156,7 @@ for SAMPLER in "${SAMPLERS[@]}"; do
               backend_tag=${RECIPE_BACKEND_WEIGHT/./p}
               prior_tag=${RECIPE_PRIOR_WEIGHT/./p}
               sat_tag=${RECIPE_SATURATION_WEIGHT/./p}
-              EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_PRETRAIN_MODE}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}_sat${sat_tag}")
+              EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_NAME_TAG}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}_sat${sat_tag}")
               EXP_MODEL_VARIANT+=("$MODEL_VARIANT")
               EXP_FRONTEND_PRETRAIN_MODE+=("$FRONTEND_PRETRAIN_MODE")
               EXP_SAMPLER+=("$SAMPLER")
@@ -172,7 +173,7 @@ for SAMPLER in "${SAMPLERS[@]}"; do
             backend_tag=${BACKEND_WEIGHT/./p}
             prior_tag=${PRIOR_WEIGHT/./p}
             sat_tag=${SATURATION_WEIGHT/./p}
-            EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_PRETRAIN_MODE}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}_sat${sat_tag}")
+            EXP_NAME+=("route4_${SAMPLER}_${SEGMENT_SECONDS}s_${PROXY_LOSS}_${MODEL_VARIANT}_${FRONTEND_NAME_TAG}_sup${sup_tag}_backend${backend_tag}_prior${prior_tag}_sat${sat_tag}")
             EXP_MODEL_VARIANT+=("$MODEL_VARIANT")
             EXP_FRONTEND_PRETRAIN_MODE+=("$FRONTEND_PRETRAIN_MODE")
             EXP_SAMPLER+=("$SAMPLER")
