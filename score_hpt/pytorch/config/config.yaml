@@ -353,6 +353,7 @@ route1:
     instrument_path: ""
     split: "test"
     maps_pianos: "both"
+    compute_velocity_mae: true
     render_sr: 44100
     eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}
@@ -382,6 +383,7 @@ flat:
     instrument_path: ""
     split: "test"
     maps_pianos: "both"
+    compute_velocity_mae: true
     render_sr: 44100
     eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}

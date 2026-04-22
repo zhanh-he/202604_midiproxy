@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from direct_invension.common import (
-    compose_cfg,
     dump_json,
     ensure_repo_imports,
     extract_sorted_notes,
-    normalize_dataset_type,
-    resolve_dataset_dir,
-    resolve_path,
+    resolve_dataset_split,
     write_flat_velocity_copy,
 )
 
@@ -52,6 +48,7 @@ def predict_flat_dataset(
     split: str = "test",
     maps_pianos: str = "both",
     skip_existing: bool = True,
+    max_items: Optional[int] = None,
 ) -> Dict[str, object]:
     scan_midis, load_maestro_audio_map, resolve_real_audio = _build_dataset_scan_helpers()
 
@@ -59,8 +56,11 @@ def predict_flat_dataset(
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    midi_files = scan_midis(dataset_type, dataset_dir, split=split, maps_pianos=maps_pianos)
-    maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=split)
+    scan_split = resolve_dataset_split(split)
+    midi_files = scan_midis(dataset_type, dataset_dir, split=scan_split, maps_pianos=maps_pianos)
+    if max_items is not None:
+        midi_files = midi_files[: int(max_items)]
+    maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=scan_split)
 
     label = f"flat_velocity_{int(flat_velocity)}"
     items: List[Dict[str, object]] = []
@@ -107,7 +107,8 @@ def predict_flat_dataset(
         "label": label,
         "dataset_type": str(dataset_type),
         "dataset_dir": str(dataset_dir),
-        "split": split,
+        "split": scan_split,
+        "requested_split": split,
         "maps_pianos": maps_pianos,
         "flat_velocity": int(flat_velocity),
         "items": items,
@@ -127,38 +128,6 @@ def predict_flat_dataset(
     }
 
 
-def main() -> None:
-    from omegaconf import OmegaConf
-
-    cfg = compose_cfg(sys.argv[1:], job_name="flat_infer")
-    dataset_type = normalize_dataset_type(cfg.dataset.test_set)
-    dataset_dir = resolve_dataset_dir(cfg, dataset_type)
-    infer_cfg = cfg.flat.infer
-    out_dir = resolve_path(infer_cfg.out_dir)
-
-    if not dataset_dir.exists():
-        raise FileNotFoundError(f"Dataset directory does not exist: {dataset_dir}")
-
-    payload = predict_flat_dataset(
-        dataset_type=dataset_type,
-        dataset_dir=dataset_dir,
-        out_dir=out_dir,
-        flat_velocity=int(infer_cfg.flat_velocity),
-        split=str(infer_cfg.split),
-        maps_pianos=str(infer_cfg.maps_pianos),
-        skip_existing=not bool(infer_cfg.overwrite),
-    )
-
-    run_payload = {
-        "dataset_type": dataset_type,
-        "dataset_dir": str(dataset_dir),
-        "out_dir": str(out_dir),
-        "config": OmegaConf.to_container(cfg, resolve=True),
-        "result": payload,
-    }
-    dump_json(out_dir / "flat_infer_run.json", run_payload)
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
-
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit("flat_infer.py is an implementation module. Use flat_eval_job.py for the supported flat-velocity evaluation job.")

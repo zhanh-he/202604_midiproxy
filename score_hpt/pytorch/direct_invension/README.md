@@ -1,54 +1,33 @@
-# Route I direct inversion
+# Direct inversion evaluation jobs
 
-This folder keeps the Route I / II implementations, the flat-velocity baseline, and the shared evaluation backend.
+This folder keeps Route I direct inversion, the flat-velocity baseline, Route II/III/IV inference helpers, and the shared rendering/evaluation backend.
+
+## Supported job entrypoints
+
+Run these from `score_hpt/`.
+
+```bash
+python pytorch/direct_invension/route1_eval_job.py   --dataset smd   --instrument piano   --compute_velo_mae   --eval_scope full
+
+python pytorch/direct_invension/flat_eval_job.py   --dataset smd   --instrument piano   --compute_velo_mae   --flat_velo 64   --eval_scope full
+
+python pytorch/direct_invension/route4_eval_job.py   --dataset smd   --instrument piano   --ckpt_path /path/to/checkpoint.pth   --compute_velo_mae   --eval_scope full
+```
+
+Route I and flat baseline evaluation are now single-job interfaces. The implementation modules `route1_infer.py` and `flat_infer.py` remain importable for code reuse, but they are not supported as CLI entrypoints.
 
 ## Files
 
-- `route1_infer.py`
-  - Route I inference implementation
-  - note-wise loudness extraction
-  - dataset-statistics velocity mapping
-  - same-structure MIDI export
-- `flat_infer.py`
-  - fixed-velocity MIDI export
-  - dataset scan matching Route I CLI behavior
-- `route2_infer.py`
-  - Route II model inference
-  - aligned score-note velocity backfill to prediction MIDI
-- `route4_infer.py`
-  - Route IV checkpoint inference
-  - same GT-note / predicted-velocity MIDI export as Route II
-- `route1_evaluate.py`
-  - Route I evaluation entrypoint
-- `route2_evaluate.py`
-  - Route II evaluation entrypoint
-- `route4_evaluate.py`
-  - Route IV evaluation entrypoint
-- `flat_evaluate.py`
-  - flat-velocity evaluation entrypoint
-- `eval_runner.py`
-  - shared evaluation runner for Route I / flat baselines
-- `common.py`
-  - shared config/path/JSON helpers
-  - shared PrettyMIDI note sorting and velocity rewriting
-- `eval_framework.py`
-  - shared rendering and evaluation backend
-  - reusable by Route II / III / IV
-
-## Public CLI entrypoints
-
-Run these from `score_hpt/`:
-
-```bash
-python pytorch/direct_invension/route1_infer.py dataset.test_set=smd
-python pytorch/direct_invension/route1_evaluate.py dataset.test_set=smd route1.eval.instrument_path=/path/to/soundfont.sf2
-python pytorch/direct_invension/route2_infer.py dataset.test_set=smd model.frontend_pretrained=/path/to/ckpt.pth
-python pytorch/direct_invension/route2_evaluate.py dataset.test_set=smd route2.eval.instrument_path=/path/to/soundfont.sf2
-python pytorch/direct_invension/route4_infer.py dataset.test_set=smd route4.infer.checkpoint_path=/path/to/ckpt.pth route4.infer.split=full
-python pytorch/direct_invension/route4_evaluate.py dataset.test_set=smd route4.eval.instrument_path=/path/to/soundfont.sf2 route4.eval.split=full route4.eval.compute_velocity_mae=true
-python pytorch/direct_invension/flat_infer.py dataset.test_set=smd flat.infer.flat_velocity=64
-python pytorch/direct_invension/flat_evaluate.py dataset.test_set=smd flat.eval.instrument_path=/path/to/soundfont.sf2
-```
+- `route1_eval_job.py`: Route I direct inversion plus evaluation.
+- `flat_eval_job.py`: flat-velocity MIDI export plus evaluation.
+- `route3_eval_job.py`, `route4_eval_job.py`: checkpoint inference plus evaluation for Routes III/IV.
+- `route1_infer.py`: Route I implementation, note-wise loudness extraction, dataset-statistics velocity mapping, same-structure MIDI export.
+- `flat_infer.py`: fixed-velocity MIDI export implementation.
+- `route2_infer.py`, `route3_infer.py`, `route4_infer.py`: model inference helpers.
+- `eval_job_common.py`: shared dataset/soundfont/workspace resolution and summary writing for job entrypoints.
+- `eval_runner.py`: shared evaluation runner.
+- `common.py`: shared config/path/JSON helpers and PrettyMIDI velocity utilities.
+- `eval_framework.py`: shared rendering and evaluation backend.
 
 ## Config source
 
@@ -58,47 +37,14 @@ Defaults come from:
 pytorch/config/config.yaml
 ```
 
-Important Route I defaults:
+Important Route I defaults are under `route1.infer.*` and `route1.eval.*`. Important flat-baseline defaults are under `flat.infer.*` and `flat.eval.*`. The job entrypoints override dataset, split/scope, soundfont, velocity MAE, and output folders explicitly.
 
-- `feature.frames_per_second=100`
-- `backend.supervision.hop_size=221`
-- `route1.infer.*`
-- `route1.eval.*`
+## Evaluation scope
 
-Important flat defaults:
-
-- `flat.infer.*`
-- `flat.eval.*`
-
-Important Route II defaults:
-
-- `route2.infer.*`
-- `route2.eval.*`
-
-Important Route IV defaults:
-
-- `route4.infer.*`
-- `route4.eval.*`
-
-## Folder-mode evaluation
-
-Use folder mode when GT MIDI and/or reference audio do not follow the built-in dataset layout.
-
-```bash
-python pytorch/direct_invension/route1_evaluate.py \
-  dataset.test_set=maestro \
-  route1.eval.instrument_path=/path/to/soundfont.sf2 \
-  route1.eval.manifest_mode=folder \
-  route1.eval.audio_reference_mode=folder \
-  route1.eval.gt_midi_dir=/path/to/gt_midis \
-  route1.eval.reference_audio_dir=/path/to/reference_audio
-```
+- `--eval_scope test`: evaluate the test split.
+- `--eval_scope full`: evaluate all available items; internally this resolves to split `all` where the dataset scanner requires it.
+- `--eval_scope one`: run one test item for fast debugging.
 
 ## Audio reference modes
 
-- `route1.eval.audio_reference_mode=dataset`
-  - compare against dataset real audio
-- `route1.eval.audio_reference_mode=folder`
-  - compare against a matched external audio folder
-- `route1.eval.audio_reference_mode=none`
-  - skip real-audio reference and keep only synth-reference metrics
+The job entrypoints use dataset-mode real-audio references by default through the shared evaluation runner. Folder-mode evaluation remains available through the lower-level Python API rather than the public CLI job interface.

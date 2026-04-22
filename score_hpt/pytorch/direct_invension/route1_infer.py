@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -14,20 +13,15 @@ from tqdm.auto import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from direct_invension.common import (
-    compose_cfg as _compose_cfg,
     dump_json,
     ensure_repo_imports,
     load_json,
-    normalize_dataset_type as _normalize_dataset_type,
     repo_root,
     require_path as _require_path,
-    resolve_dataset_dir as _resolve_dataset_dir,
-    resolve_path as _resolve_path,
     replace_note_velocities,
     SortedMidiNote,
-    slugify,
     extract_sorted_notes,
-    validate_hop_contract,
+    resolve_dataset_split,
     write_flat_velocity_copy,
 )
 
@@ -543,6 +537,7 @@ def predict_route1_dataset(
     onset_pre_s: float = 0.02,
     onset_post_s: float = 0.08,
     skip_existing: bool = True,
+    max_items: Optional[int] = None,
 ) -> Dict[str, object]:
     scan_midis, load_maestro_audio_map, resolve_real_audio = _build_dataset_scan_helpers()
 
@@ -568,8 +563,11 @@ def predict_route1_dataset(
         onset_post_s=float(onset_post_s),
     )
 
-    midi_files = scan_midis(dataset_type, dataset_dir, split=split, maps_pianos=maps_pianos)
-    maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=split)
+    scan_split = resolve_dataset_split(split)
+    midi_files = scan_midis(dataset_type, dataset_dir, split=scan_split, maps_pianos=maps_pianos)
+    if max_items is not None:
+        midi_files = midi_files[: int(max_items)]
+    maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=scan_split)
 
     direct_items: List[Dict[str, object]] = []
     flat_items: List[Dict[str, object]] = []
@@ -641,7 +639,8 @@ def predict_route1_dataset(
         "label": "route1_direct_inversion",
         "dataset_type": str(dataset_type),
         "dataset_dir": str(dataset_dir),
-        "split": split,
+        "split": scan_split,
+        "requested_split": split,
         "maps_pianos": maps_pianos,
         "config": asdict(cfg),
         "items": direct_items,
@@ -651,7 +650,8 @@ def predict_route1_dataset(
         "label": f"flat_velocity_{int(flat_velocity)}",
         "dataset_type": str(dataset_type),
         "dataset_dir": str(dataset_dir),
-        "split": split,
+        "split": scan_split,
+        "requested_split": split,
         "maps_pianos": maps_pianos,
         "config": asdict(cfg),
         "items": flat_items,
@@ -670,7 +670,7 @@ def predict_route1_dataset(
         "file_summary_path": str(file_summary_path),
     }
 
-def _resolve_stats_json(cfg, dataset_type: str) -> Path:
+def resolve_route1_stats_json(cfg, dataset_type: str) -> Path:
     configured = str(getattr(cfg.route1, "stats_json", "") or "").strip()
     if configured:
         return _require_path(configured, field_name="route1.stats_json")
@@ -690,65 +690,6 @@ def _resolve_stats_json(cfg, dataset_type: str) -> Path:
     return default_map[dataset_type]
 
 
-def _validate_contract(cfg, note_hop: int) -> None:
-    validate_hop_contract(
-        fps=float(cfg.feature.frames_per_second),
-        hop_size=int(note_hop),
-        route_name="Route I",
-    )
-
-
-def main() -> None:
-    from omegaconf import OmegaConf
-
-    cfg = _compose_cfg(sys.argv[1:], job_name="route1_infer")
-    dataset_type = _normalize_dataset_type(cfg.dataset.test_set)
-    dataset_dir = _resolve_dataset_dir(cfg, dataset_type)
-    stats_json = _resolve_stats_json(cfg, dataset_type)
-    infer_cfg = cfg.route1.infer
-    out_dir = _resolve_path(infer_cfg.out_dir)
-    note_hop = int(infer_cfg.note_hop)
-
-    _validate_contract(cfg, note_hop)
-    if not dataset_dir.exists():
-        raise FileNotFoundError(f"Dataset directory does not exist: {dataset_dir}")
-    if not stats_json.exists():
-        raise FileNotFoundError(f"Stats JSON does not exist: {stats_json}")
-
-    payload = predict_route1_dataset(
-        dataset_type=dataset_type,
-        dataset_dir=dataset_dir,
-        out_dir=out_dir,
-        dataset_stats_json=stats_json,
-        split=str(infer_cfg.split),
-        maps_pianos=str(infer_cfg.maps_pianos),
-        flat_velocity=int(infer_cfg.flat_velocity),
-        mapping_mode=str(infer_cfg.mapping_mode),
-        harmonic_weight=float(infer_cfg.harmonic_weight),
-        flux_weight=float(infer_cfg.flux_weight),
-        fallback_velocity=int(infer_cfg.fallback_velocity),
-        note_sample_rate=int(infer_cfg.note_sample_rate),
-        note_fft_size=int(infer_cfg.note_fft_size),
-        note_hop=note_hop,
-        harmonic_count=int(infer_cfg.harmonic_count),
-        band_bins=int(infer_cfg.band_bins),
-        energy_window_s=float(infer_cfg.energy_window_s),
-        onset_pre_s=float(infer_cfg.onset_pre_s),
-        onset_post_s=float(infer_cfg.onset_post_s),
-        skip_existing=not bool(infer_cfg.overwrite),
-    )
-
-    run_payload = {
-        "dataset_type": dataset_type,
-        "dataset_dir": str(dataset_dir),
-        "stats_json": str(stats_json),
-        "out_dir": str(out_dir),
-        "config": OmegaConf.to_container(cfg, resolve=True),
-        "result": payload,
-    }
-    dump_json(out_dir / "route1_infer_run.json", run_payload)
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
-
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit("route1_infer.py is an implementation module. Use route1_eval_job.py for the supported Route I evaluation job.")
