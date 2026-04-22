@@ -10,7 +10,15 @@ from tqdm.auto import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from direct_invension.common import compose_cfg, dump_json, ensure_repo_imports, normalize_dataset_type, resolve_dataset_dir, resolve_path
+from direct_invension.common import (
+    compose_cfg,
+    dump_json,
+    ensure_repo_imports,
+    normalize_dataset_type,
+    resolve_dataset_dir,
+    resolve_dataset_split,
+    resolve_path,
+)
 from inference import VeloTranscription, resolve_checkpoint
 from utilities import (
     load_mono_audio,
@@ -134,10 +142,12 @@ def predict_route2_dataset(
     checkpoint_path = Path(checkpoint_path).resolve()
 
     transcriber = VeloTranscription(checkpoint_path=str(checkpoint_path), cfg=cfg)
-    midi_files = scan_midis(dataset_type, dataset_dir, split=split, maps_pianos=maps_pianos)
+    requested_split = str(split)
+    scan_split = resolve_dataset_split(requested_split)
+    midi_files = scan_midis(dataset_type, dataset_dir, split=scan_split, maps_pianos=maps_pianos)
     if max_items is not None:
         midi_files = midi_files[: max(0, int(max_items))]
-    maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=split)
+    maestro_audio_map = load_maestro_audio_map(dataset_type, dataset_dir, split=scan_split)
 
     items: List[Dict[str, object]] = []
     file_summaries: List[Dict[str, object]] = []
@@ -191,7 +201,8 @@ def predict_route2_dataset(
         "label": str(label),
         "dataset_type": str(dataset_type),
         "dataset_dir": str(dataset_dir),
-        "split": split,
+        "split": scan_split,
+        "requested_split": requested_split,
         "maps_pianos": maps_pianos,
         "checkpoint_path": str(checkpoint_path),
         "velocity_method": str(velocity_method),
@@ -210,6 +221,8 @@ def predict_route2_dataset(
         "out_dir": str(out_dir),
         "pred_midi_dir": str(out_dir / "pred_midis"),
         "checkpoint_path": str(checkpoint_path),
+        "split": scan_split,
+        "requested_split": requested_split,
         "velocity_method": str(velocity_method),
         "manifest_path": str(manifest_path),
         "file_summary_path": str(file_summary_path),

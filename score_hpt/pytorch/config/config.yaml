@@ -354,6 +354,7 @@ route1:
     split: "test"
     maps_pianos: "both"
     compute_velocity_mae: true
+    compute_synth_gt_metrics: false
     render_sr: 44100
     eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}
@@ -384,6 +385,7 @@ flat:
     split: "test"
     maps_pianos: "both"
     compute_velocity_mae: true
+    compute_synth_gt_metrics: false
     render_sr: 44100
     eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}
@@ -416,6 +418,8 @@ route2:
     # instrument_path: "/media/datadisk/home/22828187/zhanh/202604_midiproxy_data/soundfont/SalamanderGrandPiano/SalamanderGrandPianoV3.sfz"
     split: "test"
     maps_pianos: "both"
+    compute_velocity_mae: true
+    compute_synth_gt_metrics: false
     render_sr: 44100
     eval_sr: ${backend.supervision.sample_rate}
     frames_per_second: ${feature.frames_per_second}

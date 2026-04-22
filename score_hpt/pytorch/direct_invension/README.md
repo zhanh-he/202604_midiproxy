@@ -11,16 +11,18 @@ python pytorch/direct_invension/route1_eval_job.py   --dataset smd   --instrumen
 
 python pytorch/direct_invension/flat_eval_job.py   --dataset smd   --instrument piano   --compute_velo_mae   --flat_velo 64   --eval_scope full
 
+python pytorch/direct_invension/route2_eval_job.py   --dataset smd   --instrument piano   --ckpt_path /path/to/checkpoint.pth   --compute_velo_mae   --eval_scope full
+
 python pytorch/direct_invension/route4_eval_job.py   --dataset smd   --instrument piano   --ckpt_path /path/to/checkpoint.pth   --compute_velo_mae   --eval_scope full
 ```
 
-Route I and flat baseline evaluation are now single-job interfaces. The implementation modules `route1_infer.py` and `flat_infer.py` remain importable for code reuse, but they are not supported as CLI entrypoints.
+Route I, Route II, and flat baseline evaluation are now single-job interfaces. The implementation modules `route1_infer.py`, `route2_infer.py`, and `flat_infer.py` remain importable for code reuse, but the public Route II evaluation entrypoint is `route2_eval_job.py`.
 
 ## Files
 
 - `route1_eval_job.py`: Route I direct inversion plus evaluation.
 - `flat_eval_job.py`: flat-velocity MIDI export plus evaluation.
-- `route3_eval_job.py`, `route4_eval_job.py`: checkpoint inference plus evaluation for Routes III/IV.
+- `route2_eval_job.py`, `route3_eval_job.py`, `route4_eval_job.py`: checkpoint inference plus evaluation for Routes II/III/IV.
 - `route1_infer.py`: Route I implementation, note-wise loudness extraction, dataset-statistics velocity mapping, same-structure MIDI export.
 - `flat_infer.py`: fixed-velocity MIDI export implementation.
 - `route2_infer.py`, `route3_infer.py`, `route4_infer.py`: model inference helpers.
@@ -37,7 +39,7 @@ Defaults come from:
 pytorch/config/config.yaml
 ```
 
-Important Route I defaults are under `route1.infer.*` and `route1.eval.*`. Important flat-baseline defaults are under `flat.infer.*` and `flat.eval.*`. The job entrypoints override dataset, split/scope, soundfont, velocity MAE, and output folders explicitly.
+Important Route I defaults are under `route1.infer.*` and `route1.eval.*`. Important Route II defaults are under `route2.infer.*` and `route2.eval.*`. Important flat-baseline defaults are under `flat.infer.*` and `flat.eval.*`. The job entrypoints override dataset, split/scope, soundfont, velocity MAE, and output folders explicitly.
 
 ## Evaluation scope
 

@@ -59,7 +59,11 @@ def append_metric_block(lines: list[str], summary: Dict[str, Any], title: str, p
     lines.append(_fmt_row(values))
 
 
-def _compute_synth_gt_metrics(config_prefix: str) -> bool:
+def _compute_synth_gt_metrics(config_prefix: str, eval_cfg=None) -> bool:
+    # If compute_synth_gt_metrics is explicitly set in config, use that value
+    if eval_cfg is not None and hasattr(eval_cfg, "compute_synth_gt_metrics"):
+        return bool(getattr(eval_cfg, "compute_synth_gt_metrics"))
+    # Otherwise, use default behavior: disable for Route III/IV
     return not str(config_prefix).startswith(("route3.", "route4."))
 
 
@@ -121,7 +125,7 @@ def run_evaluation(
     requested_split = str(eval_cfg.split)
     resolved_split = resolve_dataset_split(requested_split)
     compute_velocity_mae = bool(getattr(eval_cfg, "compute_velocity_mae", True))
-    compute_synth_gt_metrics = _compute_synth_gt_metrics(config_prefix)
+    compute_synth_gt_metrics = _compute_synth_gt_metrics(config_prefix, eval_cfg)
 
     validate_hop_contract(
         fps=float(eval_cfg.frames_per_second),
